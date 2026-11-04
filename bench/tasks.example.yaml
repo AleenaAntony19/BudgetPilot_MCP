@@ -1,0 +1,50 @@
+# BudgetPilot Benchmark Task Suite (Example Tasks)
+# Schema: id, prompt, base_commit, verify_command, expected_scope (1=single file, 2=multi-file, 3=cross-repo)
+
+- id: "task_01_off_by_one_pagination"
+  prompt: "Fix the off-by-one index error in paginate_items() in utils/pagination.py so the last page includes the remainder items."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_pagination.py -k test_paginate_boundary"
+  expected_scope: 1
+
+- id: "task_02_json_serializer_timestamp"
+  prompt: "Update json_dump_custom() in core/serializer.py to safely serialize datetime objects into ISO 8601 strings and UUIDs to canonical strings."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_serializer.py -k test_datetime_and_uuid_serialization"
+  expected_scope: 1
+
+- id: "task_03_http_status_mapping"
+  prompt: "Update error handler in api/exceptions.py to map ResourceNotFoundError to HTTP 404 instead of HTTP 500."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_api_exceptions.py -k test_not_found_status_code"
+  expected_scope: 1
+
+- id: "task_04_user_email_validator"
+  prompt: "Add RFC 5322 email regex validation to auth/validator.py and invoke it in register_user() in auth/service.py to reject invalid domains."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_auth_service.py -k test_invalid_email_registration"
+  expected_scope: 2
+
+- id: "task_05_tier_pricing_calculator"
+  prompt: "Refactor TierPrice model in core/prices.py to support custom tier definitions and update price_call() in core/ledger.py to evaluate custom tiers."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_ledger.py -k test_custom_tier_pricing"
+  expected_scope: 2
+
+- id: "task_06_tool_sandbox_confinement"
+  prompt: "Enhance resolve_safe_path() in agent/tools.py to resolve symlinks and reject targets pointing outside repository root."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_tools.py -k test_symlink_traversal_rejection"
+  expected_scope: 2
+
+- id: "task_07_yaml_config_migration"
+  prompt: "Migrate config storage from JSON to YAML with backward-compatible fallback across config.py, cli.py, and store.py."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_config.py tests/test_cli.py"
+  expected_scope: 3
+
+- id: "task_08_async_verification_pipeline"
+  prompt: "Refactor test verification runner to support asynchronous execution timeouts across core/verify.py, agent/loop.py, and bench/baseline.py."
+  base_commit: "HEAD"
+  verify_command: "pytest tests/test_verify.py tests/test_loop.py tests/test_bench.py"
+  expected_scope: 3

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": {
+      "command": "python3 -m budgetpilot.adapters.hooks"
+    },
+    "PostToolUse": {
+      "command": "python3 -m budgetpilot.adapters.hooks"
+    },
+    "TaskStart": {
+      "command": "python3 -m budgetpilot.adapters.hooks"
+    },
+    "TaskEnd": {
+      "command": "python3 -m budgetpilot.adapters.hooks"
+    }
+  }
+}

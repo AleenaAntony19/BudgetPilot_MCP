@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "budgetpilot": {
+      "command": "python3",
+      "args": [
+        "-m",
+        "budgetpilot.adapters.mcp_server"
+      ],
+      "env": {
+        "BP_MODE": "enforce",
+        "BP_BUDGET_SLIDER": "balanced"
+      }
+    }
+  }
+}
