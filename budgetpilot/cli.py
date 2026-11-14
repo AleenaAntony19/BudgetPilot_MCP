@@ -2027,6 +2027,43 @@ def run_status(
     return 0
 
 
+CAPTURE_INSTRUCTIONS = """\
+Capture is ON. Now run one short Claude Code session (repeat it in the CLI and in
+the Antigravity extension) and do exactly these steps:
+  1. Send any prompt.
+  2. Read a file with no limit, then Read with offset + limit.
+  3. Run a Grep and a Glob.
+  4. Make an Edit, and Write a new file.
+  5. Run pytest on a passing test, then on a failing test (Bash).
+  6. Run a Bash command with very long output.
+  7. Let Claude finish (Stop), then exit the session.
+Then run:  bp capture off
+Payloads are saved in {captures}
+"""
+
+
+def run_capture(state: str, scope: str = "user", repo: Optional[str] = None) -> int:
+    """Register or remove the diagnostic hook that records raw Claude Code payloads."""
+    from budgetpilot import installer
+
+    repo_path = Path(repo) if repo else None
+    if state == "on":
+        path, backup = installer.register(
+            installer.CAPTURE_MODULE, installer.CAPTURE_EVENTS, scope=scope, repo=repo_path
+        )
+        print(f"Capture hook registered in {path}")
+        if backup:
+            print(f"Previous settings backed up to {backup}")
+        print(CAPTURE_INSTRUCTIONS.format(captures=get_bp_home() / "captures"))
+        return 0
+    path, removed = installer.unregister(installer.CAPTURE_MODULE, scope=scope, repo=repo_path)
+    captures = get_bp_home() / "captures"
+    count = len(list(captures.glob("*.json"))) if captures.exists() else 0
+    print(f"Capture hook removed from {path} ({removed} entries).")
+    print(f"{count} captured payload(s) in {captures}")
+    return 0
+
+
 def create_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
@@ -2126,6 +2163,15 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Repository root (default: $BP_REPO_ROOT, then the current directory)",
     )
+
+    # capture command: record real Claude Code hook payloads
+    capture_parser = subparsers.add_parser(
+        "capture", help="Record the raw hook payloads Claude Code sends (diagnostic)"
+    )
+    capture_parser.add_argument("state", choices=["on", "off"], help="Register or remove the capture hook")
+    capture_parser.add_argument("--scope", choices=["user", "project"], default="user",
+                                help="user = ~/.claude/settings.json; project = <repo>/.claude/settings.local.json")
+    capture_parser.add_argument("--repo", default=None, help="Repository root for --scope project (default: cwd)")
 
     # bench command (Phase C)
     bench_parser = subparsers.add_parser("bench", help="BudgetPilot benchmark commands (Phase C)")
@@ -2408,6 +2454,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         from budgetpilot.adapters.mcp_server import run_server
         run_server(transport=args.transport, repo=getattr(args, "repo", None))
         return 0
+
+    elif args.command == "capture":
+        return run_capture(args.state, scope=args.scope, repo=args.repo)
 
     elif args.command == "bench":
         if args.bench_command == "baseline":

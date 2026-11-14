@@ -1,34 +1,22 @@
 """
-BudgetPilot Adapters Subsystem.
-Phases M & N: Integration with external agent hosts and IDE environments.
+BudgetPilot host adapters: the Claude Code hook engine and the MCP server.
 
-Adapters:
-- `mcp_server.py`: Model Context Protocol 2.x server with control and proxy tools.
-- `hooks.py`: Ultra-low latency (<60ms) standard-library shim for tool interception.
+Attributes are resolved lazily (PEP 562) so that running the hook process
+(`python -m budgetpilot.adapters.hooks`) never imports the MCP server, `mcp`
+or `pydantic`. Hook start-up time is paid on every tool call.
 """
 
-from budgetpilot.adapters.hooks import (
-    CLAUDE_TOOL_MAP,
-    handle_hook_event,
-    handle_lifecycle_trigger,
-    map_claude_tool_to_canonical,
-    measure_interception_latency,
-    payload_to_bp_event,
-)
-from budgetpilot.adapters.mcp_server import (
-    create_mcp_server,
-    mcp,
-    run_server,
-)
+from importlib import import_module
+from typing import Any
 
-__all__ = [
-    "create_mcp_server",
-    "mcp",
-    "run_server",
-    "handle_hook_event",
-    "handle_lifecycle_trigger",
-    "map_claude_tool_to_canonical",
-    "measure_interception_latency",
-    "payload_to_bp_event",
-    "CLAUDE_TOOL_MAP",
-]
+_MCP_NAMES = {"create_mcp_server", "mcp", "run_server"}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _MCP_NAMES:
+        return getattr(import_module("budgetpilot.adapters.mcp_server"), name)
+    hooks = import_module("budgetpilot.adapters.hooks")
+    try:
+        return getattr(hooks, name)
+    except AttributeError:
+        raise AttributeError(f"module 'budgetpilot.adapters' has no attribute '{name}'") from None

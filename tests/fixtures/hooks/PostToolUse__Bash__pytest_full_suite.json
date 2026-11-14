@@ -1,0 +1,31 @@
+{
+ "_meta": {
+  "source": "claude-code 2.1.325 cli (headless, haiku)",
+  "captured_from": "real session"
+ },
+ "payload": {
+  "session_id": "99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4.jsonl",
+  "cwd": "/home/user/project",
+  "prompt_id": "0912f5bd-c386-46a4-ba5e-4e98d600f118",
+  "permission_mode": "acceptEdits",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "python -m pytest -q",
+   "description": "Run full pytest suite quietly"
+  },
+  "tool_response": {
+   "stdout": "..                                                                       [100%]\n2 passed in 0.01s",
+   "stderr": "",
+   "interrupted": false,
+   "isImage": false,
+   "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01UysTfKKTgoMckSTVnpYhdp",
+  "duration_ms": 232
+ }
+}

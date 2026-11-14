@@ -1,0 +1,15 @@
+{
+ "_meta": {
+  "source": "claude-code 2.1.325 cli (headless, haiku)",
+  "captured_from": "real session"
+ },
+ "payload": {
+  "session_id": "99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4.jsonl",
+  "cwd": "/home/user/project",
+  "prompt_id": "0912f5bd-c386-46a4-ba5e-4e98d600f118",
+  "permission_mode": "acceptEdits",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Do these steps in order, one tool call each, and do not skip any: (1) Read pkg/big.py with no offset or limit. (2) Read pkg/big.py with offset 100 and limit 20. (3) Grep for 'def add' in the repo with output_mode content. (4) Glob for '**/*.py'. (5) Run with Bash: python -m pytest tests/test_mul.py -q. (6) Run with Bash: python -m pytest tests/test_add.py -q. (7) Read pkg/calc.py then Edit it so add returns a + b. (8) Write a new file notes.txt containing 'done'. (9) Run with Bash: python -c \"print('x'*200000)\". (10) Run with Bash: python -m pytest -q. Then reply with one word: finished."
+ }
+}
