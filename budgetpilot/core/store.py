@@ -268,12 +268,32 @@ def get_connection(
     conn = sqlite3.connect(str(resolved_path), timeout=timeout)
     conn.row_factory = sqlite3.Row
 
-    # Enforce SQLite WAL mode and foreign keys
-    if str(resolved_path) != ":memory:":
-        conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA busy_timeout = 5000;")
+    # Enforce SQLite WAL mode and foreign keys. Switching an existing rollback-journal
+    # database to WAL needs an exclusive lock and can return SQLITE_BUSY immediately
+    # under concurrent opens, so only switch when needed and retry briefly.
+    if str(resolved_path) != ":memory:":
+        _ensure_wal(conn)
+    conn.execute("PRAGMA foreign_keys = ON;")
     return conn
+
+
+def _ensure_wal(conn: sqlite3.Connection, attempts: int = 50, delay: float = 0.02) -> None:
+    import time as _time
+
+    for i in range(attempts):
+        try:
+            mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
+            if str(mode).lower() == "wal":
+                return
+            conn.execute("PRAGMA journal_mode = WAL;")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                raise
+            if i == attempts - 1:
+                raise
+            _time.sleep(delay * (1 + i % 5))
 
 
 def get_current_schema_version(conn: sqlite3.Connection) -> int:

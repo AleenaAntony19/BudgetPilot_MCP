@@ -583,16 +583,42 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
 mcp = create_mcp_server()
 
 
-def run_server(transport: str = "stdio") -> None:
+def _parse_server_args(argv: Optional[List[str]] = None) -> Tuple[str, Optional[str]]:
+    """Parse `--repo PATH` and `--transport stdio`. Unknown arguments are ignored."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="budgetpilot-mcp", description="BudgetPilot MCP server")
+    parser.add_argument("--repo", default=None, help="Repository root (default: $BP_REPO_ROOT, then cwd)")
+    parser.add_argument("--transport", default="stdio", choices=["stdio"], help="MCP transport")
+    args, _unknown = parser.parse_known_args(argv)
+    return args.transport, args.repo
+
+
+def run_server(
+    transport: Optional[str] = None,
+    repo: Optional[Union[Path, str]] = None,
+    argv: Optional[List[str]] = None,
+) -> None:
     """
-    Launch the BudgetPilot MCP server over stdio or specified transport.
+    Launch the BudgetPilot MCP server over stdio.
+
+    Called with no arguments (console script / `python -m`), it parses
+    `--repo PATH` and `--transport stdio` from the command line. The repository
+    root falls back to $BP_REPO_ROOT and then to the current directory.
     """
     import asyncio
-    print(f"Starting BudgetPilot MCP Server (MCP 2.x, transport={transport})...", file=os.sys.stderr)
-    if transport == "stdio":
-        asyncio.run(mcp.run_stdio_async())
-    else:
-        mcp.run()
+    import sys
+
+    if transport is None and repo is None:
+        transport, repo = _parse_server_args(argv)
+    transport = transport or "stdio"
+    if repo:
+        set_repo_root(repo)
+    print(
+        f"Starting BudgetPilot MCP Server (transport={transport}, repo={get_repo_root()})...",
+        file=sys.stderr,
+    )
+    asyncio.run(mcp.run_stdio_async())
 
 
 if __name__ == "__main__":

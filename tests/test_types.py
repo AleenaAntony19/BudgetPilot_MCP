@@ -245,8 +245,6 @@ def test_stub_modules_raise_not_implemented():
     from budgetpilot.core.router import RecoveryRouter
     from budgetpilot.core.ledger import CostLedger
     from budgetpilot.core.calibrate import CRCCalibrator
-    from budgetpilot.mcp.server import run_server
-    from budgetpilot.mcp.tools import intercept_tool
     from budgetpilot.recovery.actions import execute_recovery_action
 
     with pytest.raises(NotImplementedError):
@@ -268,12 +266,6 @@ def test_stub_modules_raise_not_implemented():
 
     with pytest.raises(NotImplementedError):
         CRCCalibrator().calibrate("")
-
-    with pytest.raises(NotImplementedError):
-        run_server()
-
-    with pytest.raises(NotImplementedError):
-        intercept_tool("read_file", {})
 
     with pytest.raises(NotImplementedError):
         execute_recovery_action(
