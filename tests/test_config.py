@@ -42,8 +42,8 @@ def test_config_defaults():
     """Verify standard default settings per PRD specifications."""
     cfg = BudgetPilotConfig()
 
-    # Mode defaults to observe
-    assert cfg.mode == ExecutionMode.OBSERVE
+    # Off until the user turns BudgetPilot on
+    assert cfg.mode == ExecutionMode.OFF
     assert cfg.budget_slider == "balanced"
 
     # Tiers
@@ -64,7 +64,7 @@ def test_config_defaults():
     assert cfg.limits.max_recovery_attempts == 3
     assert cfg.limits.max_read_files_per_scope["scope_1"] == 3
     assert cfg.limits.max_read_files_per_scope["scope_2"] == 8
-    assert cfg.limits.max_read_files_per_scope["scope_3"] == 20
+    assert cfg.limits.max_read_files_per_scope["scope_3"] == 25
 
     # Test commands
     assert cfg.test_commands.default == "pytest"
@@ -104,7 +104,7 @@ def test_load_creates_default_if_missing():
 
         loaded = load_config(cfg_file)
         assert cfg_file.exists()
-        assert loaded.mode == ExecutionMode.OBSERVE
+        assert loaded.mode == ExecutionMode.OFF
 
 
 def test_bp_mode_env_override(monkeypatch):

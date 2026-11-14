@@ -17,16 +17,14 @@ import shutil
 import subprocess
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from budgetpilot.core.scope import scope_resources
 from budgetpilot.core.types import RecoveryContext
 
 logger = logging.getLogger(__name__)
 
-# Scope resource configurations: (budget_tokens, max_read_files)
-SCOPE_RESOURCES: Dict[int, Tuple[int, int]] = {
-    1: (3000, 3),
-    2: (8000, 8),
-    3: (20000, 25),
-}
+# Compatibility view of budgetpilot.core.scope: scope -> (context token budget, max unnamed reads).
+SCOPE_RESOURCES: Dict[int, Tuple[int, int]] = {s: scope_resources(s) for s in (1, 2, 3)}
+
 
 
 @dataclass
@@ -187,7 +185,7 @@ def build_dependency_frontier(
 
     # 5. Expand Scope and Resources
     new_scope = min(3, max(1, current_scope + 1))
-    new_tokens, new_reads = SCOPE_RESOURCES[new_scope]
+    new_tokens, new_reads = scope_resources(new_scope)
 
     files_list_str = "\n".join(f"- {f}" for f in frontier_files) if frontier_files else "- (No additional external files discovered)"
     directive = (

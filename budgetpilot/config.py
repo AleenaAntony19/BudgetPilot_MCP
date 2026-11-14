@@ -8,7 +8,9 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from budgetpilot.core import state as _state
 
 
 class ExecutionMode(str, Enum):
@@ -55,7 +57,7 @@ class LimitsConfig(BaseModel):
         default_factory=lambda: {
             "scope_1": 3,
             "scope_2": 8,
-            "scope_3": 20,
+            "scope_3": 25,
         }
     )
 
@@ -70,7 +72,11 @@ class TestCommandsConfig(BaseModel):
 
 
 class BudgetPilotConfig(BaseModel):
-    mode: ExecutionMode = ExecutionMode.OBSERVE
+    # Keys this model does not know (scope_limits, hitl, ...) are kept on save.
+    model_config = ConfigDict(extra="allow")
+
+    # Off until the user turns BudgetPilot on (bp_mode_on / `bp mode on`).
+    mode: ExecutionMode = ExecutionMode.OFF
     budget_slider: str = "balanced"  # tight, balanced, loose
     tiers: TiersConfig = Field(default_factory=TiersConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
@@ -82,17 +88,11 @@ DEFAULT_BP_HOME = Path.home() / ".budgetpilot"
 
 def get_bp_home() -> Path:
     """
-    Resolve the BudgetPilot home directory.
-    Checks the BP_HOME environment variable, defaulting to ~/.budgetpilot.
-    Ensures that the directory exists.
+    Resolve the BudgetPilot home directory ($BP_HOME, else ~/.budgetpilot) and
+    make sure it exists. Delegates to budgetpilot.core.state, the stdlib-only
+    module the hook process uses.
     """
-    env_home = os.environ.get("BP_HOME")
-    if env_home:
-        bp_home = Path(env_home).expanduser().resolve()
-    else:
-        bp_home = DEFAULT_BP_HOME.expanduser().resolve()
-    bp_home.mkdir(parents=True, exist_ok=True)
-    return bp_home
+    return _state.get_bp_home()
 
 
 def load_config(config_path: Optional[Path] = None) -> BudgetPilotConfig:
@@ -114,7 +114,7 @@ def load_config(config_path: Optional[Path] = None) -> BudgetPilotConfig:
             data = json.load(f)
         cfg = BudgetPilotConfig.model_validate(data)
 
-    # Apply environment variable override for execution mode
+    # Environment overrides (same precedence as budgetpilot.core.state)
     env_mode = os.environ.get("BP_MODE")
     if env_mode:
         env_mode_clean = env_mode.strip().lower()
@@ -125,6 +125,9 @@ def load_config(config_path: Optional[Path] = None) -> BudgetPilotConfig:
             raise ValueError(
                 f"Invalid BP_MODE '{env_mode}'. Valid modes are: {valid_modes}"
             )
+    env_slider = os.environ.get("BP_BUDGET_SLIDER", "").strip().lower()
+    if env_slider in _state.SLIDERS:
+        cfg.budget_slider = env_slider
 
     return cfg
 
