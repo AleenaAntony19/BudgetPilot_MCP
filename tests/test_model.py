@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import pytest
 
+pytest.importorskip("ollama", reason="legacy local-model mode needs: pip install 'budgetpilot[local]'")
+
 from budgetpilot.agent.model import ModelResult, chat
 
 

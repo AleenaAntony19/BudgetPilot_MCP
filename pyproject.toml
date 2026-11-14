@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "budgetpilot"
-version = "0.1.0"
-description = "A budget-aware decision engine for AI coding agents"
+version = "1.0.0"
+description = "MCP server and Claude Code hook engine that cuts the token cost of coding-agent sessions"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -13,17 +13,20 @@ authors = [
     { name = "Adithyan Biju" },
 ]
 dependencies = [
-    "ollama",
     "mcp>=2.0.0",
-    "fastapi",
-    "uvicorn",
     "pydantic>=2.0",
     "pyyaml",
-    "pytest",
 ]
+
+[project.optional-dependencies]
+local = ["ollama"]
+api = ["fastapi", "uvicorn"]
+dev = ["pytest"]
 
 [project.scripts]
 bp = "budgetpilot.cli:main"
+budgetpilot-mcp = "budgetpilot.adapters.mcp_server:run_server"
+budgetpilot-hook = "budgetpilot.adapters.hooks:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

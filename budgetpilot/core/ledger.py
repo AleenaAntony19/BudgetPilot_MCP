@@ -415,6 +415,30 @@ class CostLedger:
             **kwargs,
         )
 
+    @staticmethod
+    def calculate_cost(
+        model: Optional[str] = None,
+        prompt_tokens: int = 0,
+        output_tokens: int = 0,
+        tier: Optional[str] = None,
+    ) -> float:
+        """
+        Reference USD cost of a call. When `tier` is omitted it is inferred from
+        the configured tier models (strong if `model` is the strong-tier model,
+        else cheap).
+        """
+        resolved_tier = tier
+        if resolved_tier is None:
+            resolved_tier = "cheap"
+            try:
+                from budgetpilot.config import load_config
+                cfg = load_config()
+                if model and model == cfg.tiers.strong.model:
+                    resolved_tier = "strong"
+            except Exception as exc:
+                logger.debug("calculate_cost: tier inference failed: %s", exc)
+        return price_call(resolved_tier, prompt_tokens, output_tokens)
+
     def record_event(self, event: Any) -> None:
         """
         Record a BpEvent to the persistent audit log.

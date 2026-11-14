@@ -68,6 +68,8 @@ def enforce_kill_switch() -> bool:
 SECRET_PATTERNS: List[Tuple[str, re.Pattern, str]] = [
     # AWS Access Key ID
     ("AWS_KEY", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED_AWS_KEY]"),
+    ("ANTHROPIC_KEY", re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{16,}"), "[REDACTED_ANTHROPIC_KEY]"),
+    ("OPENAI_KEY", re.compile(r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_\-]{20,}"), "[REDACTED_OPENAI_KEY]"),
     # AWS Secret Access Key assignment
     (
         "AWS_SECRET",

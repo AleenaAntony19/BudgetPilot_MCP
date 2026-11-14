@@ -1,7 +1,19 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
-*.db
-.env
 *.egg-info/
+build/
+dist/
 .pytest_cache/
+
+# BudgetPilot runtime data
+*.db
+*.db-shm
+*.db-wal
+.env
+.budgetpilot/
+bench_results/
+
+# Editor
+.obsidian/

@@ -2117,9 +2117,14 @@ def create_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser("serve", help="Run the BudgetPilot MCP server")
     serve_parser.add_argument(
         "--transport",
-        choices=["stdio", "sse"],
+        choices=["stdio"],
         default="stdio",
         help="Transport layer protocol (default: stdio)",
+    )
+    serve_parser.add_argument(
+        "--repo",
+        default=None,
+        help="Repository root (default: $BP_REPO_ROOT, then the current directory)",
     )
 
     # bench command (Phase C)
@@ -2400,8 +2405,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     elif args.command == "serve":
-        from budgetpilot.mcp.server import run_server
-        run_server(transport=args.transport)
+        from budgetpilot.adapters.mcp_server import run_server
+        run_server(transport=args.transport, repo=getattr(args, "repo", None))
         return 0
 
     elif args.command == "bench":

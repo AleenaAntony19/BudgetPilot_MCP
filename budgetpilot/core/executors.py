@@ -118,7 +118,20 @@ def restore_snapshot_files(
         if not file_path:
             continue
         p = Path(file_path)
-        norm_path = str(p.relative_to(root)) if p.is_absolute() and p.is_relative_to(root) else str(p)
+        if p.is_absolute():
+            if not p.is_relative_to(root):
+                logger.warning("Refusing to restore path outside repository: %s", file_path)
+                continue
+            norm_path = str(p.relative_to(root))
+        else:
+            norm_path = str(p)
+        target_abs = (root / norm_path).resolve()
+        if target_abs != root and root not in target_abs.parents:
+            logger.warning("Refusing to restore path escaping repository: %s", file_path)
+            continue
+        if Path(norm_path).parts and Path(norm_path).parts[0] == ".git":
+            logger.warning("Refusing to restore path inside .git: %s", file_path)
+            continue
 
         # 1. Try git checkout <target_ref> -- <norm_path>
         proc = subprocess.run(
@@ -139,8 +152,10 @@ def restore_snapshot_files(
                 text=True,
                 check=False,
             )
-            target_abs = root / norm_path
-            if target_abs.exists() and (status_proc.stdout.startswith("??") or not status_proc.stdout.strip()):
+            # Only delete files git reports as UNTRACKED ("??") — i.e. created during
+            # the run. Never delete on empty status (ignored, clean or unknown files):
+            # that could destroy user data.
+            if target_abs.exists() and status_proc.stdout.startswith("??"):
                 try:
                     if target_abs.is_file():
                         target_abs.unlink()

@@ -7,8 +7,19 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-import ollama
 from budgetpilot.config import load_config
+
+try:  # optional dependency: pip install "budgetpilot[local]"
+    import ollama
+except ImportError:  # pragma: no cover - exercised only without the extra
+    class _OllamaMissing:
+        def __getattr__(self, name: str) -> Any:
+            raise ImportError(
+                "The legacy local-model mode needs the 'ollama' package: "
+                "pip install \"budgetpilot[local]\""
+            )
+
+    ollama = _OllamaMissing()  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
