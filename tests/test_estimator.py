@@ -9,9 +9,9 @@ Tests cover:
    - Broad-scope keywords ('all', 'everywhere', 'refactor', 'migrate', 'rename', etc.).
    - Length and clause count extraction.
 2. Scope prediction logic & resource allocation:
-   - Scope 1: Localized / single-file fix (budget 3000 tokens, max 3 read files).
-   - Scope 2: Multi-file / local module (budget 8000 tokens, max 8 read files).
-   - Scope 3: Cross-repo / architecture / broad refactoring (budget 20000 tokens, max 25 read files).
+   - Scope 1: Localized / single-file fix (budget 6000 tokens, max 3 read files).
+   - Scope 2: Multi-file / local module (budget 16000 tokens, max 8 read files).
+   - Scope 3: Cross-repo / architecture / broad refactoring (budget 40000 tokens, max 25 read files).
 3. Ripgrep Identifier Probe:
    - Isolated identifier (1 file hit) -> Level 1 cue.
    - Module identifier (2-5 file hits) -> Level 2 cue.
@@ -127,7 +127,7 @@ def test_scope_1_localized_prediction(tmp_path: Path):
 
     assert isinstance(pred, ScopePrediction)
     assert pred.scope == 1
-    assert pred.budget_tokens == 3000
+    assert pred.budget_tokens == 6000
     assert pred.max_read_files == 3
     assert pred.confidence >= 0.5
     assert "single stat-verified file" in pred.rationale
@@ -142,7 +142,7 @@ def test_scope_2_multi_file_prediction(tmp_path: Path):
     pred = estimate(prompt, repo_path=str(tmp_path))
 
     assert pred.scope == 2
-    assert pred.budget_tokens == 8000
+    assert pred.budget_tokens == 16000
     assert pred.max_read_files == 8
     assert "2 stat-verified files" in pred.rationale
 
@@ -153,7 +153,7 @@ def test_scope_3_broad_keywords_prediction():
     pred = estimate(prompt)
 
     assert pred.scope == 3
-    assert pred.budget_tokens == 20000
+    assert pred.budget_tokens == 40000
     assert pred.max_read_files == 25
     assert "broad-scope keywords detected" in pred.rationale
 

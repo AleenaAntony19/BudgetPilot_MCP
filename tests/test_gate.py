@@ -177,23 +177,23 @@ def test_scope_1_deny_full_suite_tests():
     assert v_target.status == GateVerdictStatus.ALLOW
 
 
-def test_scope_2_max_10_file_reads():
-    """Verify Scope 2 allows at most 10 distinct file reads."""
+def test_scope_2_max_file_reads():
+    """Verify Scope 2 allows at most 8 distinct file reads (budgetpilot.core.scope)."""
     state = TaskState(session_id="sess_s2_reads")
     state.metadata["scope"] = 2
     state.metadata["mode"] = "enforce"
 
-    for i in range(10):
+    for i in range(8):
         state.read_set.add(f"mod_{i}.py")
 
-    # 11th distinct file -> DENY
+    # 9th distinct file -> DENY
     ev_deny = BpEvent(
         event_type="read_file",
         payload={"arguments": {"path": "mod_10.py", "start": 1, "end": 100}},
     )
     v_deny = gate_check(ev_deny, state)
     assert v_deny.status == GateVerdictStatus.DENY
-    assert "exceeded maximum 10 file reads for scope 2" in v_deny.reason.lower()
+    assert "exceeded maximum 8 file reads for scope 2" in v_deny.reason.lower()
 
 
 def test_scope_2_read_window_clamping():

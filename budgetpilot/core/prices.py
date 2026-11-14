@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-from budgetpilot.config import get_bp_home
+from budgetpilot.core.state import get_bp_home
 
 logger = logging.getLogger(__name__)
 

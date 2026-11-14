@@ -18,9 +18,13 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from budgetpilot.core.store import get_connection, init_db, safe_execute_write
+from budgetpilot.core.scope import scope_resources
 from budgetpilot.core.types import ScopePrediction
 
 logger = logging.getLogger(__name__)
+
+# Compatibility view of budgetpilot.core.scope: scope -> (context token budget, max unnamed reads).
+SCOPE_RESOURCES: Dict[int, Tuple[int, int]] = {s: scope_resources(s) for s in (1, 2, 3)}
 
 # Broad-scope indicators biasing toward Scope 3
 BROAD_SCOPE_WORDS = {
@@ -56,12 +60,6 @@ IDENTIFIER_STOPWORDS = {
     "return", "import", "def", "error", "issue", "bug", "fix", "update", "change",
 }
 
-# Scope resource configurations: (budget_tokens, max_read_files)
-SCOPE_RESOURCES: Dict[int, Tuple[int, int]] = {
-    1: (3000, 3),    # Scope 1: localized / single-file
-    2: (8000, 8),    # Scope 2: multi-file / module
-    3: (20000, 25),  # Scope 3: cross-repo / architecture
-}
 
 
 @dataclass
@@ -292,7 +290,7 @@ def estimate(
             final_scope = 3
         # raw_scope == 3 remains 3
 
-    budget_tokens, max_read_files = SCOPE_RESOURCES[final_scope]
+    budget_tokens, max_read_files = scope_resources(final_scope)
 
     elapsed_ms = (time.time() - t_start) * 1000.0
 

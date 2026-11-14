@@ -14,6 +14,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from budgetpilot.core.scope import get_limits
 from budgetpilot.core.tracker import TaskState
 from budgetpilot.core.types import (
     BpEvent,
@@ -106,8 +107,9 @@ def check(
     Evaluate an intercepted BpEvent against the active gate policy and task state.
 
     Enforcement Matrix:
-    - Scope 1: Max 3 file reads outside named set, 400-line read window, depth 1 list_dir, deny full-suite tests.
-    - Scope 2: Max 10 file reads, 800-line read window, package directory search/list.
+    Limits come from budgetpilot.core.scope (one table for every component):
+    - Scope 1: 3 file reads outside the named set, 400-line read window, depth 1 list_dir, no full-suite tests.
+    - Scope 2: 8 file reads, 800-line read window, package directory search/list.
     - Scope 3: Unrestricted.
     - Edits: Always allowed across all scope levels.
 
@@ -199,6 +201,9 @@ def check(
         else:
             # C. Determine Scope Level (default 1)
             scope = int(meta.get("current_scope", meta.get("scope", 1)))
+            limits = get_limits(scope)
+            window = limits.read_window_lines or 0
+            max_reads = limits.max_files_outside_named
 
             # Scope 3: Unrestricted
             if scope >= 3:
@@ -226,15 +231,15 @@ def check(
                         start = int(arguments.get("start", 1))
                         end = arguments.get("end")
 
-                        # 400-line read window
-                        if end is None or (isinstance(end, (int, float, str)) and int(end) - start + 1 > 400):
-                            clamped_end = start + 399
+                        # Scope 1 read window
+                        if end is None or (isinstance(end, (int, float, str)) and int(end) - start + 1 > window):
+                            clamped_end = start + window - 1
                             rewritten_args = dict(arguments)
                             rewritten_args["start"] = start
                             rewritten_args["end"] = clamped_end
                             verdict = GateVerdict.rewrite(
                                 rewritten_call=ToolCall(tool_name="read_file", arguments=rewritten_args),
-                                reason="Rewritten by execute gate: Read window clamped to 400 lines for Scope 1.",
+                                reason=f"Rewritten by execute gate: Read window clamped to {window} lines for Scope 1.",
                             )
                         else:
                             # Max 3 file reads outside named set
@@ -247,9 +252,9 @@ def check(
                                     f == raw_path or Path(f).name == Path(raw_path).name
                                     for f in outside_reads
                                 )
-                                if not path_already_read and len(outside_reads) >= 3:
+                                if not path_already_read and len(outside_reads) >= max_reads:
                                     verdict = GateVerdict.deny(
-                                        reason="Denied by execute gate: Exceeded maximum 3 file reads outside named set for Scope 1. Consider requesting scope expansion.",
+                                        reason=f"Denied by execute gate: Exceeded maximum {max_reads} file reads outside named set for Scope 1. Consider requesting scope expansion.",
                                     )
                                 else:
                                     verdict = GateVerdict.allow(reason="Allowed by execute gate: read_file within Scope 1 limits.")
@@ -302,25 +307,25 @@ def check(
                         start = int(arguments.get("start", 1))
                         end = arguments.get("end")
 
-                        # 800-line read window
-                        if end is None or (isinstance(end, (int, float, str)) and int(end) - start + 1 > 800):
-                            clamped_end = start + 799
+                        # Scope 2 read window
+                        if end is None or (isinstance(end, (int, float, str)) and int(end) - start + 1 > window):
+                            clamped_end = start + window - 1
                             rewritten_args = dict(arguments)
                             rewritten_args["start"] = start
                             rewritten_args["end"] = clamped_end
                             verdict = GateVerdict.rewrite(
                                 rewritten_call=ToolCall(tool_name="read_file", arguments=rewritten_args),
-                                reason="Rewritten by execute gate: Read window clamped to 800 lines for Scope 2.",
+                                reason=f"Rewritten by execute gate: Read window clamped to {window} lines for Scope 2.",
                             )
                         else:
-                            # Max 10 file reads
+                            # Scope 2 file-read cap
                             path_already_read = any(
                                 f == raw_path or Path(f).name == Path(raw_path).name
                                 for f in active_state.read_set
                             )
-                            if not path_already_read and len(active_state.read_set) >= 10:
+                            if not path_already_read and len(active_state.read_set) >= max_reads:
                                 verdict = GateVerdict.deny(
-                                    reason="Denied by execute gate: Exceeded maximum 10 file reads for Scope 2. Consider calling request_scope.",
+                                    reason=f"Denied by execute gate: Exceeded maximum {max_reads} file reads for Scope 2. Consider calling request_scope.",
                                 )
                             else:
                                 verdict = GateVerdict.allow(reason="Allowed by execute gate: read_file within Scope 2 limits.")
