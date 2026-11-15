@@ -1,6 +1,6 @@
 """
-BudgetPilot: A budget-aware decision engine for AI coding agents.
-Phase A: Foundation, configuration, and type contracts.
+BudgetPilot: Claude Code hooks, a small MCP server and a local dashboard that
+cut the token cost of coding-agent sessions.
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

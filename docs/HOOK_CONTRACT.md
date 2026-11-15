@@ -87,7 +87,7 @@ No output and exit 0 means "no opinion": Claude Code continues normally. BudgetP
 | `updatedInput` replaces the whole input object, so unchanged fields must be included. | Docs; the probe sent the full object |
 | The model is **not** told the input changed. `permissionDecisionReason` on `allow` goes only to the debug log. BudgetPilot adds a one-line `additionalContext` so the model knows the file was windowed. | Verified by probe |
 | `additionalContext` reaches the model with the tool result. | Verified by probe |
-| `allow` skips the permission prompt, so BudgetPilot sends it only for `Read`, `Grep` and `Glob` on non-secret paths inside `cwd`. | Docs |
+| `allow` skips the permission prompt, so BudgetPilot sends it only with a rewritten `Read` or `Grep`, on non-secret paths inside `cwd`. `Glob` calls are only ever denied or left alone. | Docs |
 | `deny`: the call does not run and the reason is shown to the model. | Docs |
 | `ask` in headless mode (`claude -p`) is treated as a denial; the model receives the reason. BudgetPilot never emits `ask` when `BP_HITL=0`. | Verified by probe |
 | Precedence across hooks: `deny` > `defer` > `ask` > `allow`. | Docs |

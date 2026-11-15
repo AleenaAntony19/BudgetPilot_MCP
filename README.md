@@ -4,6 +4,8 @@ BudgetPilot is a set of Claude Code hooks, a small MCP server and a local dashbo
 It sizes each prompt, narrows or blocks wasteful tool calls, limits what a task may add to the context, and steps in when tests fail.
 It never calls a model itself: Claude Code, logged in with your plan, stays the model.
 
+This is version 2.0. Version 1.0 was a decision engine that drove a local model; it is the first commit of this repository's history, and [docs/HISTORY.md](docs/HISTORY.md) explains what changed and why.
+
 **Measured effect so far:** in a first paired test (6 pairs, Claude Haiku 5.5, a small synthetic repository), sessions with BudgetPilot on used **15.5% fewer billing units** than sessions with it only observing (95% CI 9.8% to 20.4% fewer), and both solved 6 of 6 tasks. In that run the saving came from the short notes BudgetPilot adds, which led the model to make fewer tool calls and write less; the gate itself changed only 4 calls. It is a small sample on easy tasks: read [docs/RESULTS.md](docs/RESULTS.md) before relying on it. That paired test is the only source of a savings figure; everything else BudgetPilot shows is labelled as an estimate.
 
 ## Quickstart
@@ -34,7 +36,7 @@ Type a command as the whole message in Claude Code. A hook handles it before the
 | `bp_status` | Mode, dial, recent token use, current task |
 | `bp_dashboard` | Open the local dashboard (ledger, gate decisions, failures, savings) |
 
-The same commands exist in a terminal: `bp mode on`, `bp budget tight`, `bp status`, `bp dashboard`. The mode applies to all projects on the machine.
+The same commands exist in a terminal (`bp mode on`, `bp budget tight`, `bp status`, `bp dashboard`) and as MCP tools (`bp_mode`, `bp_set_budget`, `bp_status`, `bp_dashboard`). The mode applies to all projects on the machine. All commands and MCP tools: [docs/INSTALL.md](docs/INSTALL.md#commands).
 
 ## How it works
 
@@ -86,7 +88,7 @@ python scripts/check_fixtures.py     # every hook fixture must be a real capture
 
 The hook tests run the real hook process against payloads captured from Claude Code (`tests/fixtures/hooks`).
 
-`bp run`, `bp chat` and `bp bench` are an older local-model (Ollama) mode. They need `pip install ".[local]"` and are not part of the Claude Code integration.
+`bp run`, `bp chat` and `bp bench` are the version 1.0 local-model (Ollama) mode. They need `pip install ".[local]"` and are not part of the Claude Code integration. The repository layout, including the 1.0 compatibility files at the root, is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#repository-layout).
 
 ## Background
 
@@ -99,8 +101,10 @@ The recovery router and the scope-first design follow two papers, cited as given
 
 | Document | Contents |
 |---|---|
-| [docs/INSTALL.md](docs/INSTALL.md) | Installation, commands, configuration, hosts |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The flow, scope limits, gate rules, recovery |
+| [docs/INSTALL.md](docs/INSTALL.md) | Installation, commands, MCP tools, configuration, hosts |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The flow, scope limits, gate rules, recovery, dashboard, repository layout |
 | [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md) | The Claude Code hook formats BudgetPilot relies on, and how each was verified |
 | [docs/RESULTS.md](docs/RESULTS.md) | Paired A/B results |
 | [docs/SECURITY.md](docs/SECURITY.md) | What it does and does not protect |
+| [docs/HISTORY.md](docs/HISTORY.md) | Version 1.0 to 2.0: what changed and why |
+| [CHANGELOG.md](CHANGELOG.md) | Changes per release |

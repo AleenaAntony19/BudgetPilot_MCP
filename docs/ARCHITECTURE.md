@@ -113,6 +113,41 @@ Every failure is stored in `failure_fingerprints`, keyed by a hash of the error 
 - It cannot see or change the system prompt, the conversation history or the model choice.
 - It only acts where Claude Code runs hooks. Other hosts can use the MCP proxy tools (`bp_read_file` and so on), which enforce the same scope limits only when the agent chooses to call them.
 
-## Legacy local-model mode
+## Dashboard
 
-`bp run`, `bp chat` and `bp bench` drive a local Ollama model through BudgetPilot's own agent loop. They predate the Claude Code integration, need `pip install "budgetpilot[local]"`, and are not part of the path described above.
+`bp dashboard` (or `bp_dashboard` in Claude Code) serves one page at `http://127.0.0.1:8765` (the next free port if that one is busy). It reads the database read-only and refreshes every 3 seconds. Panels:
+
+| Panel | Shows |
+|---|---|
+| Status | Mode, dial, when hooks and the MCP server were last seen, host, version |
+| Tokens | Token use for this session and the last 24 hours from the transcript ledger, billing units, API-equivalent cost, cache-hit ratio per turn (with drops flagged) |
+| Savings | The latest paired A/B result (measured), and tokens avoided by the gate and by trimming, BudgetPilot's own overhead and the net (all labelled estimated) |
+| Scope & budget | The current task's scope and confidence, context and output budget used, a pending recovery |
+| Gate | Decision counts, top rules with estimated tokens avoided, the last 10 decisions |
+| Failure fingerprints | The persistent failure ledger: signature, class, count, actions tried, what resolved it |
+| Recovery | Recovery decisions: recommended and chosen action, who chose, outcome |
+| Connections | Hook, MCP and dashboard processes, the current transcript, and how far the estimator's token estimates are from the transcript totals |
+
+JSON endpoints under `/api/` (`summary`, `tasks`, `gate`, `failures`, `recovery`, `connections`, `ab`) serve the same data. Code: `budgetpilot/dashboard/server.py`.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `budgetpilot/adapters/` | `hooks.py` (the hook entry point Claude Code runs), `hook_engine.py` (per-event logic), `mcp_server.py` (MCP tools) |
+| `budgetpilot/core/` | Version 2.0 path: `scope.py` (limits table), `estimator.py` (scope estimate), `ccgate.py` (gate), `recovery_flow.py` (fingerprints and 3E), `router.py` (expected-value routing), `cc_ledger.py` (transcript ledger), `hookdb.py` and `store.py` (SQLite and migrations), `state.py` (mode, dial, home), `commands.py` (`bp_*` commands) |
+| `budgetpilot/core/calibration/` | CRC calibration and the rollout collector behind `bp rollout collect` and `bp calibrate` |
+| `budgetpilot/dashboard/` | The local dashboard |
+| `budgetpilot/bench/` | `ab.py` (the paired A/B harness behind `bp ab`); the other files are the 1.0 benchmark (`bp bench`) |
+| `budgetpilot/installer.py`, `cc_cli.py`, `capture_hook.py` | `bp install` / `uninstall` / `doctor` / `capture` |
+| `budgetpilot/cli.py` | The `bp` command |
+| `budgetpilot/agent/`, `budgetpilot/recovery/`, `core/gate.py`, `core/ledger.py`, `core/savings.py` and similar | The 1.0 local-model engine, still used by `bp run`, `bp chat` and `bp bench` |
+| `bench/` | `ab_tasks.yaml`, the fixture repository `fixture_repo/` and the hidden tests `fixture_hidden/` used by `bp ab` |
+| `tests/` | Unit and hook tests; `tests/fixtures/hooks/` holds the captured payloads |
+| `scripts/` | Fixture checks, capture import, a demo walkthrough |
+| `docs/` | These documents; `docs/results/` holds the archived A/B data |
+| `main.py`, `mcp_server.py`, `api.py`, `analytics.py`, `budgetpilot_core.py` (root) | 1.0 compatibility modules. Not installed by `pip install .` and not used by version 2.0 |
+
+## Legacy local-model mode (version 1.0)
+
+`bp run`, `bp chat` and `bp bench` drive a local Ollama model through BudgetPilot's own agent loop. They are the version 1.0 design, need `pip install "budgetpilot[local]"`, and are not part of the path described above. Why the design changed: [HISTORY.md](HISTORY.md).

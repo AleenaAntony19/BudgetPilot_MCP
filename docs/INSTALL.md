@@ -9,7 +9,7 @@
 ## Install
 
 ```bash
-git clone <this repository> BudgetPilot_MCP
+git clone https://github.com/AleenaAntony19/BudgetPilot_MCP.git   # the main branch is the current version
 cd BudgetPilot_MCP
 python3 -m venv .venv && source .venv/bin/activate
 pip install .                 # or: pip install -e ".[dev]" --config-settings editable_mode=compat
@@ -59,10 +59,45 @@ Type these as the whole message in Claude Code. They are handled by a hook and n
 | `bp_mode_observe` | `bp mode observe` | Measure only: full ledger, no intervention |
 | `bp_mode_off` | `bp mode off` | Hooks do nothing (the default after install) |
 | `bp_budget tight` / `balanced` / `loose` | `bp budget tight` | Budget dial |
-| `bp_status` | `bp status` | Mode, dial, recent token use, current task |
+| `bp_status` | `bp status` | Mode, dial, recent token use, current task. In a terminal, `bp status` prints the mode and dial, followed by the router's λ values, CRC calibration state and gate counts |
 | `bp_dashboard` | `bp dashboard` | Start or reuse the local dashboard and show its URL |
 
 The mode is global: it applies to every project on this machine.
+
+### MCP tools
+
+`bp install` registers an MCP server named `budgetpilot`. Its tools are for the model or for hosts that do not run hooks; in Claude Code you normally use the commands above.
+
+| Tool | Effect |
+|---|---|
+| `bp_status` | Mode, dial, token use in the last 24 hours, current task |
+| `bp_mode` | Set the mode: `on`, `off` or `observe` |
+| `bp_set_budget` | Set the dial: `tight`, `balanced` or `loose` |
+| `bp_dashboard` | Start or reuse the dashboard and return its URL |
+| `bp_request_scope` | Raise the current task's scope by one level (or to a given level), with a reason. The request is logged |
+| `bp_recovery_options` | The pending recovery decision after a failed test run: failure signature, router scores, recommended action |
+| `bp_recovery_choose` | Apply a recovery choice: `estimate`, `execute`, `expand`, `escalate`, `retry`, `deny` or `mode_off` |
+| `bp_report` | Cost and execution report as JSON, terminal text, Markdown or HTML |
+| `bp_read_file`, `bp_search`, `bp_list_dir`, `bp_edit_file`, `bp_run_tests` | Proxy tools that apply the scope limits themselves, for hosts without hooks (see [Hosts](#hosts)) |
+
+The model can call `bp_recovery_choose` and `bp_request_scope` itself. Keep them off any auto-allow list if you want to make those decisions yourself ([SECURITY.md](SECURITY.md)).
+
+### Other terminal commands
+
+| Command | Effect |
+|---|---|
+| `bp install`, `bp uninstall` | See [Install](#install) |
+| `bp doctor --claude` | Check the installation and measure hook latency (`--runs N` timing runs per payload) |
+| `bp ab smoke`, `bp ab run`, `bp ab report FILE` | Paired A/B test; see [Measuring savings](#measuring-savings) |
+| `bp transcript-check [PATH]` | See [Checking a transcript](#checking-a-transcript) |
+| `bp capture on` / `off` | Record raw hook payloads; see [Checking the hook contract](#checking-the-hook-contract-on-your-host) |
+| `bp serve [--repo PATH]` | Run the MCP server on stdio (what `bp install` registers) |
+| `bp config [--json]` | Print the configuration |
+| `bp report [--session ID] [--format …]` | Cost and execution report from the database |
+| `bp rollout collect`, `bp calibrate` | Collect recovery rollouts and build the CRC table the router uses instead of the hand-set λ values |
+| `bp init`, `bp run`, `bp chat`, `bp bench`, `bp estimator eval`, `bp doctor --legacy` | Version 1.0 local-model mode; see [HISTORY.md](HISTORY.md) |
+
+`bp --version` prints the installed version.
 
 ## Configuration
 

@@ -36,12 +36,12 @@ Prompts are not stored: only an estimated token count and the file names mention
 - **Not a security filter.** The secret-path list is a short pattern list used to decide when *not* to auto-approve. It does not stop Claude Code from reading a secret if you approve the read.
 - **Not a hard token cap.** It cannot limit the model's output tokens. Budgets act at tool boundaries; a denied call can be repeated to override it, and after three denials in a task the gate only observes.
 - **Not a guarantee of human review.** The human-in-the-loop step relies on Claude Code showing its permission dialog. In permission modes that skip dialogs, and in headless runs, it is not shown; set `BP_HITL=0` there.
-- **The MCP tool `bp_recovery_choose` can be called by the model.** It records the choice as the human's. Do not add it to an auto-allow list if you want to make that choice yourself.
+- **The MCP tools `bp_recovery_choose` and `bp_request_scope` can be called by the model.** `bp_recovery_choose` records the choice as the human's, and `bp_request_scope` raises the task's limits. Do not add them to an auto-allow list if you want to make those decisions yourself.
 
 ## Trust
 
 - Hook commands run with your user's privileges on every tool call. `bp install` writes the absolute path of the Python interpreter it was run with; anyone who can modify that environment or `~/.claude/settings.json` can run code as you.
-- The legacy local-model mode (`bp run`, `bp chat`) executes model-written commands itself and predates these protections. It is not part of the Claude Code path.
+- The version 1.0 local-model mode (`bp run`, `bp chat`) executes model-written commands itself and predates these protections. It is not part of the Claude Code path ([HISTORY.md](HISTORY.md)).
 
 ## Reporting a problem
 
