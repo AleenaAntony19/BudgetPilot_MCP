@@ -1,24 +1,21 @@
 """
-BudgetPilot Model Context Protocol (MCP) 2.x Server Adapter.
-Phase M: Exposes BudgetPilot control tools and gate-enforced proxy tools
-for MCP-compliant agent hosts (Antigravity, Claude Code, Cursor, OpenCode).
+BudgetPilot MCP server (MCP 2.x, stdio).
 
-Uses MCP 2.x API (`from mcp.server import MCPServer`).
+A small tool surface. Tool descriptions are sent to the model on every turn,
+so each is kept to one short line, and results are compact JSON.
 
-Exposed Tools:
-1. Control Tools:
-   - `bp_status`: Show current runtime mode, budget slider, CRC calibration, and spend.
-   - `bp_set_budget`: Dynamically adjust runtime budget slider (tight, balanced, loose) or mode.
-   - `bp_request_scope`: Explicitly request scope elevation with justification.
-   - `bp_escalate`: Launch bounded strong-tier sub-run inside an isolated git worktree.
-   - `bp_report`: Retrieve financial and execution telemetry report (json/markdown/terminal/html).
+Control tools:
+    bp_status            mode, budget dial, recent token use, current task
+    bp_mode              on | off | observe (same code path as the bp_mode_* commands)
+    bp_set_budget        tight | balanced | loose
+    bp_dashboard         start or reuse the local dashboard, return its URL
+    bp_request_scope     raise the current task's scope by one level
+    bp_recovery_options  the pending recovery decision, if any
+    bp_recovery_choose   apply the human's recovery decision (3E loop)
+    bp_report            cost and execution report
 
-2. Proxy Tools (Gate-Enforced):
-   - `bp_list_dir`: Sandboxed directory listing with depth limiting.
-   - `bp_search`: Ripgrep code search with pattern confinement.
-   - `bp_read_file`: Line-bounded reading with oversized chunk rewriting.
-   - `bp_edit_file`: Exact string replacement with scope policy checks.
-   - `bp_run_tests`: Test execution with automated failure classification.
+Gate-enforced proxy tools, for hosts that do not run Claude Code hooks:
+    bp_list_dir, bp_search, bp_read_file, bp_edit_file, bp_run_tests
 """
 
 from dataclasses import asdict
@@ -61,10 +58,37 @@ def get_or_create_tracker(session_id: str, repo_root: Optional[Union[Path, str]]
     return _ACTIVE_TRACKERS[session_id]
 
 
+def _compact(value: Any) -> Any:
+    """Drop empty fields: tool output is input tokens on the next turn."""
+    if isinstance(value, dict):
+        cleaned = {k: _compact(v) for k, v in value.items()}
+        return {k: v for k, v in cleaned.items() if v not in (None, "", [], {})}
+    if isinstance(value, list):
+        return [_compact(v) for v in value]
+    return value
+
+
+def _heartbeat() -> None:
+    """Record that the MCP server is alive (shown in the dashboard). Never raises."""
+    try:
+        from budgetpilot.core import hookdb
+
+        conn = hookdb.open_ready()
+        if conn is not None:
+            try:
+                hookdb.heartbeat(conn, "mcp", "mcp", {"repo": str(get_repo_root()), "pid": os.getpid()}, min_interval=0)
+            finally:
+                conn.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("MCP heartbeat failed: %s", exc)
+
+
 def _format_tool_result(data: Dict[str, Any], is_error: bool = False) -> CallToolResult:
-    """Format dictionary result into an MCP 2.x CallToolResult preserving structured data."""
+    """Compact JSON text plus the same data as structured content."""
+    _heartbeat()
+    data = _compact(data)
     return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(data, indent=2))],
+        content=[TextContent(type="text", text=json.dumps(data, separators=(",", ":"), ensure_ascii=False))],
         structured_content=data,
         is_error=is_error,
     )
@@ -82,246 +106,112 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
     # -----------------------------------------------------------------------
 
     @server.tool()
-    def bp_status(session_id: Optional[str] = None) -> CallToolResult:
-        """
-        Query current BudgetPilot system status:
-        - Active execution mode (enforce, observe, off)
-        - Active budget slider (tight, balanced, loose)
-        - Conformal Risk Control (CRC) calibration guarantees
-        - Historical spend, modeled avoided spend, and savings ratio
-        - Current session state (if session_id is provided)
-        """
-        init_db()
-        cfg = load_config()
-        bp_home = str(get_bp_home())
+    def bp_status() -> CallToolResult:
+        """Show BudgetPilot mode, budget dial, token use in the last 24 hours and the current task."""
+        from budgetpilot.core import commands
 
-        # Calibration Guarantees
-        calibration_guarantees: Dict[str, Any] = {}
-        for level in ("tight", "balanced", "loose"):
-            lam, source = CrcLambda.get(level)
-            target_alpha = {"tight": 0.30, "balanced": 0.20, "loose": 0.10}[level]
-            calibration_guarantees[level] = {
-                "budget_level": level,
-                "lambda": round(lam, 4),
-                "target_alpha": target_alpha,
-                "source": source,
-                "calibrated": (source != "uncalibrated"),
-            }
+        return _format_tool_result(commands.status_data())
 
-        # Historical financial metrics
-        total_sessions = 0
-        total_measured_spend = 0.0
-        total_avoided_mid = 0.0
-        gate_counts = {"allow": 0, "rewrite": 0, "deny": 0, "override": 0}
+    @server.tool()
+    def bp_mode(mode: str) -> CallToolResult:
+        """Turn BudgetPilot on, off, or to observe (measure only). Applies to all projects."""
+        from budgetpilot.core import commands, state
 
-        conn = get_connection()
+        message = commands.set_mode_text(mode)
+        return _format_tool_result({"message": message, "mode": state.get_mode()})
+
+    @server.tool()
+    def bp_set_budget(budget_slider: str) -> CallToolResult:
+        """Set the budget dial: tight, balanced or loose."""
+        from budgetpilot.core import commands, state
+
+        message = commands.set_budget_text(budget_slider)
+        return _format_tool_result({"message": message, "budget": state.get_budget_slider()})
+
+    @server.tool()
+    def bp_dashboard(port: int = 8765, open_browser: bool = True) -> CallToolResult:
+        """Start or reuse the local BudgetPilot dashboard and return its URL."""
         try:
-            s_row = conn.execute("SELECT COUNT(*) as cnt, COALESCE(SUM(total_cost), 0.0) as cost FROM sessions;").fetchone()
-            if s_row:
-                total_sessions = int(s_row["cnt"])
-                total_measured_spend = float(s_row["cost"])
+            from budgetpilot.dashboard import ensure_running
 
-            mc_row = conn.execute("SELECT COALESCE(SUM(estimated_cost), 0.0) as cost FROM model_calls;").fetchone()
-            if mc_row and mc_row["cost"] > 0:
-                total_measured_spend = max(total_measured_spend, float(mc_row["cost"]))
-
-            av_rows = conn.execute("SELECT saved_cost_usd, metadata FROM avoided_estimates;").fetchall()
-            for r in av_rows:
-                saved = float(r["saved_cost_usd"] or 0.0)
-                total_avoided_mid += saved
-                meta_json = r["metadata"]
-                if meta_json:
-                    try:
-                        m = json.loads(meta_json)
-                        gate_counts["override"] += int(m.get("override_count", 0))
-                    except Exception:
-                        pass
-
-            gd_rows = conn.execute("SELECT verdict, COUNT(*) as cnt FROM gate_decisions GROUP BY verdict;").fetchall()
-            for r in gd_rows:
-                v = str(r["verdict"]).lower()
-                if v in gate_counts:
-                    gate_counts[v] += int(r["cnt"])
-
+            return _format_tool_result({"url": ensure_running(port=port, open_browser=open_browser)})
         except Exception as exc:
-            logger.debug("Failed querying status financial details: %s", exc)
-        finally:
-            conn.close()
-
-        baseline_spend = total_measured_spend + total_avoided_mid
-        savings_ratio = (total_avoided_mid / baseline_spend * 100.0) if baseline_spend > 0 else 0.0
-
-        session_info: Optional[Dict[str, Any]] = None
-        if session_id:
-            tracker = _ACTIVE_TRACKERS.get(session_id)
-            if tracker:
-                session_info = {
-                    "session_id": session_id,
-                    "task_id": tracker.state.task_id,
-                    "current_scope": tracker.state.current_scope,
-                    "read_files_count": len(tracker.state.read_files),
-                    "touched_files": list(tracker.state.touched_files),
-                    "denial_count": tracker.state.denial_count,
-                    "override_active": tracker.state.override_active,
-                }
-
-        ret = {
-            "bp_home": bp_home,
-            "active_mode": cfg.mode.value,
-            "active_budget_slider": cfg.budget_slider,
-            "calibration_guarantees": calibration_guarantees,
-            "financials": {
-                "total_sessions": total_sessions,
-                "measured_spend_usd": round(total_measured_spend, 6),
-                "modeled_avoided_usd": round(total_avoided_mid, 6),
-                "baseline_equivalent_usd": round(baseline_spend, 6),
-                "savings_ratio_pct": round(savings_ratio, 2),
-            },
-            "gate_counts": gate_counts,
-            "session": session_info,
-        }
-        return _format_tool_result(ret)
+            return _format_tool_result({"error": f"{type(exc).__name__}: {str(exc)[:160]}"}, is_error=True)
 
     @server.tool()
-    def bp_set_budget(
-        budget_slider: Optional[str] = None,
-        mode: Optional[str] = None,
-    ) -> CallToolResult:
-        """
-        Dynamically adjust BudgetPilot operational parameters:
-        - `budget_slider`: 'tight' (conservative), 'balanced' (standard), 'loose' (lenient)
-        - `mode`: 'enforce' (active gate policy), 'observe' (passive telemetry), 'off' (disabled)
-        """
-        cfg = load_config()
-        changed = {}
+    def bp_request_scope(reason: str, target_scope: Optional[int] = None,
+                         session_id: Optional[str] = None) -> CallToolResult:
+        """Raise the current task's scope by one level (or to target_scope), with a reason."""
+        from budgetpilot.core import hookdb
+        from budgetpilot.core.recovery_flow import expand_task_scope
+        from budgetpilot.core.scope import clamp_scope, get_limits
 
-        if budget_slider:
-            slider_clean = str(budget_slider).strip().lower()
-            if slider_clean not in ("tight", "balanced", "loose"):
-                return _format_tool_result({
-                    "success": False,
-                    "error": f"Invalid budget slider '{budget_slider}'. Must be one of: tight, balanced, loose.",
-                }, is_error=False)
-            cfg.budget_slider = slider_clean
-            changed["budget_slider"] = slider_clean
-
-        if mode:
-            mode_clean = str(mode).strip().lower()
-            try:
-                cfg.mode = ExecutionMode(mode_clean)
-                changed["mode"] = cfg.mode.value
-            except ValueError:
-                return _format_tool_result({
-                    "success": False,
-                    "error": f"Invalid mode '{mode}'. Must be one of: enforce, observe, off.",
-                }, is_error=False)
-
-        if changed:
-            save_config(cfg)
-
-        return _format_tool_result({
-            "success": True,
-            "updated": changed,
-            "active_mode": cfg.mode.value,
-            "active_budget_slider": cfg.budget_slider,
-        })
-
-    @server.tool()
-    def bp_request_scope(
-        reason: str,
-        target_scope: Optional[int] = None,
-        session_id: Optional[str] = None,
-    ) -> CallToolResult:
-        """
-        Explicitly request scope elevation (+1 level or target scope) when a task requires
-        broader repository edits or reading additional files.
-        """
         active_sess = session_id or "default_mcp_session"
         tracker = get_or_create_tracker(active_sess)
-
         old_scope = tracker.state.current_scope
-        if target_scope is not None:
-            new_scope = max(1, min(int(target_scope), 3))
-        else:
-            new_scope = min(old_scope + 1, 3)
 
+        # A task tracked by the Claude Code hooks takes precedence over the proxy-tool tracker.
+        conn = hookdb.open_ready()
+        try:
+            task = hookdb.latest_task(conn) if conn is not None else None
+            if task is not None and task.get("status") == "active":
+                with hookdb.TaskTxn(conn, task["task_id"]) as txn:
+                    if txn.task is not None:
+                        old_scope = int(txn.task["scope"])
+                        wanted = clamp_scope(target_scope) if target_scope is not None else min(old_scope + 1, 3)
+                        while int(txn.task["scope"]) < wanted:
+                            expand_task_scope(txn.task, str(txn.task.get("budget_slider") or "balanced"))
+        finally:
+            if conn is not None:
+                conn.close()
+
+        new_scope = clamp_scope(target_scope) if target_scope is not None else min(old_scope + 1, 3)
         tracker.state.current_scope = new_scope
-
-        # Record task event
         safe_execute_write(
             conn_or_path=None,
-            sql="""
-            INSERT INTO task_events (session_id, event_type, payload)
-            VALUES (?, 'request_scope', ?);
-            """,
-            params=(active_sess, json.dumps({
-                "reason": reason,
-                "old_scope": old_scope,
-                "granted_scope": new_scope,
-            })),
+            sql="INSERT INTO task_events (session_id, event_type, payload) VALUES (?, 'request_scope', ?);",
+            params=(active_sess, json.dumps({"reason": reason, "old_scope": old_scope, "granted_scope": new_scope})),
         )
-
         return _format_tool_result({
             "approved": True,
             "previous_scope": old_scope,
             "granted_scope": new_scope,
-            "max_read_files": {1: 5, 2: 15, 3: 50}.get(new_scope, 15),
-            "reason": reason,
+            "max_read_files": get_limits(new_scope).max_files_outside_named,
         })
 
     @server.tool()
-    def bp_escalate(
-        task_prompt: str,
-        session_id: Optional[str] = None,
-        repo_path: Optional[str] = None,
-        max_turns: int = 5,
-        cost_cap_usd: float = 0.50,
-    ) -> CallToolResult:
-        """
-        Launch a bounded recovery sub-run on the 'strong' model tier inside an
-        isolated git worktree, enforcing USD and turn caps, and returning a unified diff.
-        """
-        from budgetpilot.agent.escalation import run_escalation
-        from budgetpilot.core.types import FailureClass, RecoveryContext
+    def bp_recovery_options() -> CallToolResult:
+        """Show the pending recovery decision after a failed test run: signature, scores, recommended action."""
+        from budgetpilot.core import hookdb, recovery_flow
 
-        active_sess = session_id or f"escalate_{uuid.uuid4().hex[:8]}"
-        root = Path(repo_path).expanduser().resolve() if repo_path else get_repo_root()
+        conn = hookdb.open_ready()
+        if conn is None:
+            return _format_tool_result({"pending": False})
+        try:
+            return _format_tool_result(recovery_flow.pending_options(conn))
+        finally:
+            conn.close()
 
-        ctx = RecoveryContext(
-            failure_class=FailureClass.UNKNOWN,
-            error_message=task_prompt,
-            prompt=task_prompt,
-            session_id=active_sess,
-        )
+    @server.tool()
+    def bp_recovery_choose(action: str, note: str = "") -> CallToolResult:
+        """Apply the user's recovery choice: estimate, execute, expand, escalate, retry, deny or mode_off."""
+        from budgetpilot.core import hookdb, recovery_flow
 
-        result = run_escalation(
-            prompt=task_prompt,
-            repo_path=root,
-            ctx=ctx,
-            max_turns=max_turns,
-            cost_cap_usd=cost_cap_usd,
-            session_id=active_sess,
-        )
-
-        return _format_tool_result({
-            "success": getattr(result, "success", getattr(result, "succeeded", False)),
-            "patch": getattr(result, "patch", ""),
-            "cost_usd": getattr(result, "cost_usd", 0.0),
-            "tokens_used": getattr(result, "tokens_used", getattr(result, "total_tokens", 0)),
-            "wall_time": getattr(result, "wall_time", 0.0),
-            "turns_used": getattr(result, "turns_used", getattr(result, "turns", 0)),
-            "error": getattr(result, "error", None),
-        })
+        conn = hookdb.open_ready()
+        if conn is None:
+            return _format_tool_result({"ok": False, "error": "database unavailable"}, is_error=True)
+        try:
+            result = recovery_flow.choose(conn, action, note)
+        finally:
+            conn.close()
+        return _format_tool_result(result, is_error=not result.get("ok", False))
 
     @server.tool()
     def bp_report(
         session_id: Optional[str] = None,
         format_type: str = "json",
     ) -> CallToolResult:
-        """
-        Generate a BudgetPilot financial and execution report.
-        Formats: 'json', 'terminal', 'markdown', 'html'.
-        """
+        """Cost and execution report. format_type: json, terminal, markdown or html."""
         from budgetpilot.cli import run_report
         import io
         import sys
@@ -508,10 +398,7 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
         session_id: Optional[str] = None,
         repo_root: Optional[str] = None,
     ) -> CallToolResult:
-        """
-        List directory contents with depth and permission sandboxing.
-        Protected by BudgetPilot execute gate against excessive exploration.
-        """
+        """List a directory, with depth limited by the task scope."""
         return _proxy_execute("list_dir", {"path": path, "depth": depth}, session_id, repo_root)
 
     @server.tool()
@@ -521,9 +408,7 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
         session_id: Optional[str] = None,
         repo_root: Optional[str] = None,
     ) -> CallToolResult:
-        """
-        Search repository code using ripgrep with pattern sandboxing.
-        """
+        """Search the repository with ripgrep, limited by the task scope."""
         return _proxy_execute("search", {"pattern": pattern, "path": path}, session_id, repo_root)
 
     @server.tool()
@@ -534,10 +419,7 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
         session_id: Optional[str] = None,
         repo_root: Optional[str] = None,
     ) -> CallToolResult:
-        """
-        Read file contents with line limits.
-        Large or unbounded reads are automatically rewritten into bounded windows.
-        """
+        """Read a file by line range; large reads are narrowed to the scope window."""
         args = {"path": path, "start": start}
         if end is not None:
             args["end"] = end
@@ -551,10 +433,7 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
         session_id: Optional[str] = None,
         repo_root: Optional[str] = None,
     ) -> CallToolResult:
-        """
-        Perform exact string replacement in a file.
-        Enforces scope limits on touched files and single-file policies.
-        """
+        """Replace an exact string in a file."""
         return _proxy_execute("edit_file", {"path": path, "old": old, "new": new}, session_id, repo_root)
 
     @server.tool()
@@ -565,10 +444,7 @@ def create_mcp_server(name: str = "BudgetPilot") -> MCPServer:
         session_id: Optional[str] = None,
         repo_root: Optional[str] = None,
     ) -> CallToolResult:
-        """
-        Execute repository tests in a sandboxed subprocess.
-        Automatically classifies failures into 7 diagnostic classes.
-        """
+        """Run tests and classify any failure."""
         args = {"timeout": timeout}
         if command is not None:
             args["command"] = command
