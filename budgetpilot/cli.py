@@ -2133,7 +2133,37 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # doctor command
-    subparsers.add_parser("doctor", help="Run system diagnostics and verify dependencies")
+    doctor_parser = subparsers.add_parser("doctor", help="Check the installation and measure hook latency")
+    doctor_parser.add_argument("--claude", action="store_true",
+                               help="Also check Claude Code: binary, registered hooks, newest transcript")
+    doctor_parser.add_argument("--runs", type=int, default=10, help="Hook timing runs per payload (default: 10)")
+    doctor_parser.add_argument("--legacy", action="store_true",
+                               help="Run the legacy local-model (Ollama) diagnostics instead")
+
+    # Claude Code integration
+    install_parser = subparsers.add_parser("install", help="Register BudgetPilot hooks and MCP server in Claude Code")
+    install_parser.add_argument("--scope", choices=["user", "project"], default="user",
+                                help="user = ~/.claude/settings.json; project = <repo>/.claude/settings.local.json")
+    install_parser.add_argument("--repo", default=None, help="Repository root for --scope project (default: cwd)")
+    install_parser.add_argument("--hooks", action="store_true", help="Only register the hooks")
+    install_parser.add_argument("--mcp", action="store_true", help="Only register the MCP server")
+    install_parser.add_argument("--claude-md", action="store_true",
+                                help="Add a CLAUDE.md command block (fallback for hosts without hooks)")
+    install_parser.add_argument("--yes", "-y", action="store_true", help="Do not ask for confirmation")
+    subparsers.add_parser("uninstall", help="Remove exactly what `bp install` added")
+
+    mode_parser = subparsers.add_parser("mode", help="Turn BudgetPilot on, off, or to measure-only (all projects)")
+    mode_parser.add_argument("mode", choices=["on", "off", "observe"])
+
+    dashboard_parser = subparsers.add_parser("dashboard", help="Open the local dashboard (127.0.0.1 only)")
+    dashboard_parser.add_argument("--port", type=int, default=None, help="Port (default: 8765, next free if busy)")
+    dashboard_parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
+    dashboard_parser.add_argument("--stop", action="store_true", help="Stop the running dashboard")
+
+    check_parser = subparsers.add_parser("transcript-check",
+                                         help="Show which usage fields a Claude Code transcript contains")
+    check_parser.add_argument("path", nargs="?", default=None, help="Transcript .jsonl (default: the newest one)")
+    check_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # chat command
     chat_parser = subparsers.add_parser("chat", help="Start an interactive chat session")
@@ -2421,7 +2451,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     elif args.command == "doctor":
-        return run_doctor()
+        if args.legacy:
+            return run_doctor()
+        from budgetpilot import cc_cli
+        return cc_cli.run_doctor(claude=args.claude, runs=args.runs)
 
     elif args.command == "chat":
         return run_chat_loop(tier=args.tier, session_id=args.session_id)
@@ -2454,6 +2487,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         from budgetpilot.adapters.mcp_server import run_server
         run_server(transport=args.transport, repo=getattr(args, "repo", None))
         return 0
+
+    elif args.command == "install":
+        from budgetpilot import cc_cli
+        return cc_cli.run_install(scope=args.scope, repo=args.repo, hooks=args.hooks, mcp=args.mcp,
+                                  claude_md=args.claude_md, yes=args.yes)
+
+    elif args.command == "uninstall":
+        from budgetpilot import cc_cli
+        return cc_cli.run_uninstall()
+
+    elif args.command == "mode":
+        from budgetpilot import cc_cli
+        return cc_cli.run_mode(args.mode)
+
+    elif args.command == "dashboard":
+        from budgetpilot import cc_cli
+        return cc_cli.run_dashboard(port=args.port, open_browser=not args.no_open, stop=args.stop)
+
+    elif args.command == "transcript-check":
+        from budgetpilot import cc_cli
+        return cc_cli.run_transcript_check(args.path, as_json=args.json)
 
     elif args.command == "capture":
         return run_capture(args.state, scope=args.scope, repo=args.repo)
@@ -2525,6 +2579,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     elif args.command == "status":
+        if not args.json:
+            from budgetpilot.core import commands
+            print(commands.status_text())
+            print()
         return run_status(
             output_json=args.json,
             db_path=args.db if hasattr(args, "db") else None,
