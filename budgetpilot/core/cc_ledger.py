@@ -36,18 +36,32 @@ CACHE_WRITE_5M_MULTIPLIER = 1.25
 CACHE_WRITE_1H_MULTIPLIER = 2.0
 
 # (model id prefix, input USD per million tokens, cache-read multiplier).
-# Shipped defaults; override under "claude_models" in $BP_HOME/prices.json.
-# The Haiku row was checked against a real run: it reproduces the
-# `total_cost_usd` Claude Code reported to 8 decimal places. The others are
-# list prices that should be re-checked against the provider's pricing page.
+# First matching prefix wins, so more specific ids come first. Output is 5x
+# input, 5-minute cache writes 1.25x and 1-hour cache writes 2x on every row.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing, read on
+# 2026-11-15. The Haiku 5.5 row also reproduces the `total_cost_usd` Claude
+# Code reported for a real run to 8 decimal places. Override or extend under
+# "claude_models" in $BP_HOME/prices.json.
 DEFAULT_MODEL_PRICES: List[Tuple[str, float, float]] = [
-    ("claude-haiku-5-5", 0.10, 0.10),
-    ("claude-sonnet-5-5", 2.00, 0.05),
+    ("claude-fable-5-2", 8.00, 0.025),
+    ("claude-mythos-5-2", 8.00, 0.025),
+    ("claude-fable-5-1", 10.00, 0.025),
+    ("claude-mythos-5-1", 10.00, 0.025),
+    ("claude-fable-5", 10.00, 0.10),
+    ("claude-mythos-5", 10.00, 0.10),
     ("claude-opus-5-5", 4.00, 0.05),
-    ("claude-fable-5", 8.00, 0.025),
-    ("claude-mythos-5", 8.00, 0.025),
+    ("claude-opus-5", 5.00, 0.10),
+    ("claude-opus-4", 5.00, 0.10),
+    ("claude-sonnet-5-5", 2.00, 0.05),
+    ("claude-sonnet-5", 2.00, 0.10),
+    ("claude-sonnet-4", 3.00, 0.10),
+    ("claude-haiku-5-5", 0.10, 0.10),
+    ("claude-haiku-4-5", 1.00, 0.10),
 ]
 FALLBACK_PREFIX = "claude-sonnet-5-5"
+
+# Haiku 5.5 is priced 5x higher for prompts over 100,000 tokens.
+LONG_PROMPT_RULES = {"claude-haiku-5-5": (100_000, 5.0)}
 
 
 def model_prices() -> List[Tuple[str, float, float]]:
@@ -115,6 +129,10 @@ def _turn_from_row(row: Dict[str, Any], task_id: Optional[str],
         return None
     tokens = parse_usage(usage)
     input_price, read_mult, guessed = price_for(message.get("model"), prices)
+    prompt_tokens = tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"] + tokens["cache_read"]
+    for prefix, (threshold, factor) in LONG_PROMPT_RULES.items():
+        if str(message.get("model") or "").startswith(prefix) and prompt_tokens > threshold:
+            input_price *= factor
     units = billing_units(tokens, read_mult)
     tools = [
         block.get("name") for block in (message.get("content") or [])
