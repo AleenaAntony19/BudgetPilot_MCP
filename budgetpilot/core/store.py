@@ -13,7 +13,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from budgetpilot.config import get_bp_home
+from budgetpilot.core.state import get_bp_home
 from budgetpilot.core.safety import redact_data, redact_secrets
 
 logger = logging.getLogger(__name__)
@@ -241,7 +241,195 @@ MIGRATIONS: List[Tuple[int, str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_verifications_session ON verifications(session_id);
         CREATE INDEX IF NOT EXISTS idx_recovery_decisions_session ON recovery_decisions(session_id);
         """
-    )
+    ),
+    (
+        2,
+        "Reserved: legacy control-plane schema, intentionally not created",
+        "SELECT 1;",
+    ),
+    (
+        3,
+        "Reserved: legacy control-plane session marker, intentionally not created",
+        "SELECT 1;",
+    ),
+    (
+        4,
+        "Claude Code hook engine: tasks, gate events, token ledger, failure fingerprints, recovery, A/B runs",
+        """
+        -- one row per API message, deduplicated by message id
+        CREATE TABLE IF NOT EXISTS cc_turns (
+            message_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            task_id TEXT,
+            ts TEXT,
+            model TEXT,
+            effort TEXT,
+            input_tokens INTEGER DEFAULT 0,
+            cache_write_5m INTEGER DEFAULT 0,
+            cache_write_1h INTEGER DEFAULT 0,
+            cache_read INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            thinking_tokens INTEGER DEFAULT 0,
+            context_tokens INTEGER DEFAULT 0,
+            tools_called TEXT,
+            billing_units REAL DEFAULT 0.0,
+            ref_usd REAL DEFAULT 0.0,
+            price_guess INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_cc_turns_session ON cc_turns(session_id, ts);
+        CREATE INDEX IF NOT EXISTS idx_cc_turns_task ON cc_turns(task_id);
+
+        -- one row per Claude Code session seen by the hooks
+        CREATE TABLE IF NOT EXISTS cc_sessions (
+            session_id TEXT PRIMARY KEY,
+            first_seen REAL,
+            last_seen REAL,
+            cwd TEXT,
+            repo_id TEXT,
+            transcript_path TEXT,
+            contract_sent INTEGER DEFAULT 0,
+            host TEXT
+        );
+
+        -- one row per user prompt = one task
+        CREATE TABLE IF NOT EXISTS tasks_bp (
+            task_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            ts REAL,
+            repo_id TEXT,
+            cwd TEXT,
+            prompt_tokens_est INTEGER DEFAULT 0,
+            scope INTEGER DEFAULT 1,
+            scope_conf REAL DEFAULT 0.0,
+            mode TEXT,
+            budget_slider TEXT,
+            ctx_budget INTEGER DEFAULT 0,
+            out_budget INTEGER DEFAULT 0,
+            ctx_used_est INTEGER DEFAULT 0,
+            out_used INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'active',
+            overhead_tokens_est INTEGER DEFAULT 0,
+            pending_recovery TEXT,
+            state TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_tasks_bp_session ON tasks_bp(session_id, ts);
+
+        -- every gate decision
+        CREATE TABLE IF NOT EXISTS gate_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            task_id TEXT,
+            ts REAL,
+            tool TEXT,
+            verdict TEXT,
+            rule TEXT,
+            reason TEXT,
+            tokens_avoided_est INTEGER DEFAULT 0,
+            latency_ms REAL DEFAULT 0.0
+        );
+        CREATE INDEX IF NOT EXISTS idx_gate_events_task ON gate_events(task_id);
+        CREATE INDEX IF NOT EXISTS idx_gate_events_ts ON gate_events(ts);
+
+        -- tool results seen (estimated tokens)
+        CREATE TABLE IF NOT EXISTS tool_obs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            task_id TEXT,
+            ts REAL,
+            tool TEXT,
+            result_tokens_est INTEGER DEFAULT 0,
+            trimmed_tokens_est INTEGER DEFAULT 0,
+            truncated INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_obs_task ON tool_obs(task_id);
+
+        -- persistent failure fingerprints (survive sessions)
+        CREATE TABLE IF NOT EXISTS failure_fingerprints (
+            signature TEXT NOT NULL,
+            repo_id TEXT NOT NULL DEFAULT '',
+            failure_class TEXT,
+            first_seen REAL,
+            last_seen REAL,
+            count INTEGER DEFAULT 0,
+            sample_message TEXT,
+            actions_tried TEXT,
+            resolved_by TEXT,
+            last_task_id TEXT,
+            PRIMARY KEY (signature, repo_id)
+        );
+
+        -- each human or automatic recovery decision
+        CREATE TABLE IF NOT EXISTS recovery_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            task_id TEXT,
+            ts REAL,
+            signature TEXT,
+            failure_class TEXT,
+            attempt INTEGER DEFAULT 1,
+            router_scores TEXT,
+            recommended TEXT,
+            chosen TEXT,
+            decided_by TEXT,
+            outcome TEXT,
+            tokens_after_est INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_recovery_events_task ON recovery_events(task_id);
+
+        -- transcript read cursor per session
+        CREATE TABLE IF NOT EXISTS transcript_cursor (
+            session_id TEXT PRIMARY KEY,
+            byte_offset INTEGER DEFAULT 0,
+            last_line_hash TEXT,
+            prompt_id TEXT
+        );
+
+        -- paired A/B runs
+        CREATE TABLE IF NOT EXISTS ab_runs (
+            run_id TEXT PRIMARY KEY,
+            pair_id TEXT,
+            arm TEXT,
+            task_id TEXT,
+            repeat INTEGER,
+            passed INTEGER,
+            billing_units REAL,
+            ref_usd REAL,
+            total_cost_usd_reported REAL,
+            in_tok INTEGER,
+            cache_w INTEGER,
+            cache_r INTEGER,
+            out_tok INTEGER,
+            turns INTEGER,
+            wall_s REAL,
+            ts REAL,
+            detail TEXT
+        );
+
+        -- liveness of hooks, MCP server and dashboard
+        CREATE TABLE IF NOT EXISTS connections (
+            name TEXT PRIMARY KEY,
+            kind TEXT,
+            last_seen REAL,
+            detail TEXT
+        );
+        """,
+    ),
+]
+
+LATEST_SCHEMA_VERSION: int = max(v for v, _, _ in MIGRATIONS)
+
+# Tables added by migration 4 (the Claude Code hook engine).
+HOOK_TABLES = [
+    "cc_turns",
+    "cc_sessions",
+    "tasks_bp",
+    "gate_events",
+    "tool_obs",
+    "failure_fingerprints",
+    "recovery_events",
+    "transcript_cursor",
+    "ab_runs",
+    "connections",
 ]
 
 
@@ -268,12 +456,32 @@ def get_connection(
     conn = sqlite3.connect(str(resolved_path), timeout=timeout)
     conn.row_factory = sqlite3.Row
 
-    # Enforce SQLite WAL mode and foreign keys
-    if str(resolved_path) != ":memory:":
-        conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA busy_timeout = 5000;")
+    # Enforce SQLite WAL mode and foreign keys. Switching an existing rollback-journal
+    # database to WAL needs an exclusive lock and can return SQLITE_BUSY immediately
+    # under concurrent opens, so only switch when needed and retry briefly.
+    if str(resolved_path) != ":memory:":
+        _ensure_wal(conn)
+    conn.execute("PRAGMA foreign_keys = ON;")
     return conn
+
+
+def _ensure_wal(conn: sqlite3.Connection, attempts: int = 50, delay: float = 0.02) -> None:
+    import time as _time
+
+    for i in range(attempts):
+        try:
+            mode = conn.execute("PRAGMA journal_mode;").fetchone()[0]
+            if str(mode).lower() == "wal":
+                return
+            conn.execute("PRAGMA journal_mode = WAL;")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                raise
+            if i == attempts - 1:
+                raise
+            _time.sleep(delay * (1 + i % 5))
 
 
 def get_current_schema_version(conn: sqlite3.Connection) -> int:

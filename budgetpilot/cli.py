@@ -2027,6 +2027,43 @@ def run_status(
     return 0
 
 
+CAPTURE_INSTRUCTIONS = """\
+Capture is ON. Now run one short Claude Code session (repeat it in the CLI and in
+the Antigravity extension) and do exactly these steps:
+  1. Send any prompt.
+  2. Read a file with no limit, then Read with offset + limit.
+  3. Run a Grep and a Glob.
+  4. Make an Edit, and Write a new file.
+  5. Run pytest on a passing test, then on a failing test (Bash).
+  6. Run a Bash command with very long output.
+  7. Let Claude finish (Stop), then exit the session.
+Then run:  bp capture off
+Payloads are saved in {captures}
+"""
+
+
+def run_capture(state: str, scope: str = "user", repo: Optional[str] = None) -> int:
+    """Register or remove the diagnostic hook that records raw Claude Code payloads."""
+    from budgetpilot import installer
+
+    repo_path = Path(repo) if repo else None
+    if state == "on":
+        path, backup = installer.register(
+            installer.CAPTURE_MODULE, installer.CAPTURE_EVENTS, scope=scope, repo=repo_path
+        )
+        print(f"Capture hook registered in {path}")
+        if backup:
+            print(f"Previous settings backed up to {backup}")
+        print(CAPTURE_INSTRUCTIONS.format(captures=get_bp_home() / "captures"))
+        return 0
+    path, removed = installer.unregister(installer.CAPTURE_MODULE, scope=scope, repo=repo_path)
+    captures = get_bp_home() / "captures"
+    count = len(list(captures.glob("*.json"))) if captures.exists() else 0
+    print(f"Capture hook removed from {path} ({removed} entries).")
+    print(f"{count} captured payload(s) in {captures}")
+    return 0
+
+
 def create_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
@@ -2096,7 +2133,58 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # doctor command
-    subparsers.add_parser("doctor", help="Run system diagnostics and verify dependencies")
+    doctor_parser = subparsers.add_parser("doctor", help="Check the installation and measure hook latency")
+    doctor_parser.add_argument("--claude", action="store_true",
+                               help="Also check Claude Code: binary, registered hooks, newest transcript")
+    doctor_parser.add_argument("--runs", type=int, default=10, help="Hook timing runs per payload (default: 10)")
+    doctor_parser.add_argument("--legacy", action="store_true",
+                               help="Run the legacy local-model (Ollama) diagnostics instead")
+
+    # Claude Code integration
+    install_parser = subparsers.add_parser("install", help="Register BudgetPilot hooks and MCP server in Claude Code")
+    install_parser.add_argument("--scope", choices=["user", "project"], default="user",
+                                help="user = ~/.claude/settings.json; project = <repo>/.claude/settings.local.json")
+    install_parser.add_argument("--repo", default=None, help="Repository root for --scope project (default: cwd)")
+    install_parser.add_argument("--hooks", action="store_true", help="Only register the hooks")
+    install_parser.add_argument("--mcp", action="store_true", help="Only register the MCP server")
+    install_parser.add_argument("--claude-md", action="store_true",
+                                help="Add a CLAUDE.md command block (fallback for hosts without hooks)")
+    install_parser.add_argument("--yes", "-y", action="store_true", help="Do not ask for confirmation")
+    subparsers.add_parser("uninstall", help="Remove exactly what `bp install` added")
+
+    mode_parser = subparsers.add_parser("mode", help="Turn BudgetPilot on, off, or to measure-only (all projects)")
+    mode_parser.add_argument("mode", choices=["on", "off", "observe"])
+
+    dashboard_parser = subparsers.add_parser("dashboard", help="Open the local dashboard (127.0.0.1 only)")
+    dashboard_parser.add_argument("--port", type=int, default=None, help="Port (default: 8765, next free if busy)")
+    dashboard_parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
+    dashboard_parser.add_argument("--stop", action="store_true", help="Stop the running dashboard")
+
+    ab_parser = subparsers.add_parser("ab", help="Paired A/B test on real Claude Code sessions (observe vs enforce)")
+    ab_sub = ab_parser.add_subparsers(dest="ab_command")
+    for name, text in (("smoke", "3 tasks x 2 arms x 2 repeats: a first number quickly"),
+                       ("run", "All tasks (or --task ...) with --repeats")):
+        sub_parser = ab_sub.add_parser(name, help=text)
+        sub_parser.add_argument("--model", default="haiku",
+                                help="Model for both arms (default: haiku, to conserve plan usage)")
+        sub_parser.add_argument("--repeats", type=int, default=None, help="Repeats per task and arm (default: 2)")
+        sub_parser.add_argument("--task", action="append", default=None, help="Task id (repeatable)")
+        sub_parser.add_argument("--arms", default=None, help="Comma-separated arms (default: observe,enforce)")
+        sub_parser.add_argument("--tasks", default=None, help="Task file (default: bench/ab_tasks.yaml)")
+        sub_parser.add_argument("--fixture", default=None, help="Fixture repository (default: bench/fixture_repo)")
+        sub_parser.add_argument("--out", default=None, help="Directory for the JSON result (default: bench_results)")
+        sub_parser.add_argument("--results-md", default=None, help="Markdown report path (default: docs/RESULTS.md)")
+        sub_parser.add_argument("--seed", type=int, default=0, help="Seed for the run order")
+        sub_parser.add_argument("--timeout", type=int, default=600, help="Seconds per session")
+        sub_parser.add_argument("--yes", "-y", action="store_true", help="Do not ask for confirmation")
+    ab_report = ab_sub.add_parser("report", help="Rebuild the Markdown report from a saved JSON result")
+    ab_report.add_argument("json", help="bench_results/ab_<timestamp>.json")
+    ab_report.add_argument("--results-md", default=None, help="Markdown report path (default: docs/RESULTS.md)")
+
+    check_parser = subparsers.add_parser("transcript-check",
+                                         help="Show which usage fields a Claude Code transcript contains")
+    check_parser.add_argument("path", nargs="?", default=None, help="Transcript .jsonl (default: the newest one)")
+    check_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # chat command
     chat_parser = subparsers.add_parser("chat", help="Start an interactive chat session")
@@ -2117,10 +2205,24 @@ def create_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser("serve", help="Run the BudgetPilot MCP server")
     serve_parser.add_argument(
         "--transport",
-        choices=["stdio", "sse"],
+        choices=["stdio"],
         default="stdio",
         help="Transport layer protocol (default: stdio)",
     )
+    serve_parser.add_argument(
+        "--repo",
+        default=None,
+        help="Repository root (default: $BP_REPO_ROOT, then the current directory)",
+    )
+
+    # capture command: record real Claude Code hook payloads
+    capture_parser = subparsers.add_parser(
+        "capture", help="Record the raw hook payloads Claude Code sends (diagnostic)"
+    )
+    capture_parser.add_argument("state", choices=["on", "off"], help="Register or remove the capture hook")
+    capture_parser.add_argument("--scope", choices=["user", "project"], default="user",
+                                help="user = ~/.claude/settings.json; project = <repo>/.claude/settings.local.json")
+    capture_parser.add_argument("--repo", default=None, help="Repository root for --scope project (default: cwd)")
 
     # bench command (Phase C)
     bench_parser = subparsers.add_parser("bench", help="BudgetPilot benchmark commands (Phase C)")
@@ -2370,7 +2472,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     elif args.command == "doctor":
-        return run_doctor()
+        if args.legacy:
+            return run_doctor()
+        from budgetpilot import cc_cli
+        return cc_cli.run_doctor(claude=args.claude, runs=args.runs)
 
     elif args.command == "chat":
         return run_chat_loop(tier=args.tier, session_id=args.session_id)
@@ -2400,9 +2505,46 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     elif args.command == "serve":
-        from budgetpilot.mcp.server import run_server
-        run_server(transport=args.transport)
+        from budgetpilot.adapters.mcp_server import run_server
+        run_server(transport=args.transport, repo=getattr(args, "repo", None))
         return 0
+
+    elif args.command == "install":
+        from budgetpilot import cc_cli
+        return cc_cli.run_install(scope=args.scope, repo=args.repo, hooks=args.hooks, mcp=args.mcp,
+                                  claude_md=args.claude_md, yes=args.yes)
+
+    elif args.command == "uninstall":
+        from budgetpilot import cc_cli
+        return cc_cli.run_uninstall()
+
+    elif args.command == "mode":
+        from budgetpilot import cc_cli
+        return cc_cli.run_mode(args.mode)
+
+    elif args.command == "dashboard":
+        from budgetpilot import cc_cli
+        return cc_cli.run_dashboard(port=args.port, open_browser=not args.no_open, stop=args.stop)
+
+    elif args.command == "ab":
+        from budgetpilot.bench import ab
+        if args.ab_command == "report":
+            return ab.main_ab("report", report_json=args.json, results_md=args.results_md)
+        if args.ab_command not in ("smoke", "run"):
+            print("usage: bp ab smoke | run | report")
+            return 1
+        return ab.main_ab(
+            args.ab_command, tasks_path=args.tasks, fixture=args.fixture, repeats=args.repeats, model=args.model,
+            task_ids=args.task, arms=args.arms.split(",") if args.arms else None, out_dir=args.out,
+            results_md=args.results_md, seed=args.seed, timeout=args.timeout, yes=args.yes,
+        )
+
+    elif args.command == "transcript-check":
+        from budgetpilot import cc_cli
+        return cc_cli.run_transcript_check(args.path, as_json=args.json)
+
+    elif args.command == "capture":
+        return run_capture(args.state, scope=args.scope, repo=args.repo)
 
     elif args.command == "bench":
         if args.bench_command == "baseline":
@@ -2471,6 +2613,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     elif args.command == "status":
+        if not args.json:
+            from budgetpilot.core import commands
+            print(commands.status_text())
+            print()
         return run_status(
             output_json=args.json,
             db_path=args.db if hasattr(args, "db") else None,

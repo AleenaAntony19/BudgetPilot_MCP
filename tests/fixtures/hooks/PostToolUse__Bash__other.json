@@ -1,0 +1,31 @@
+{
+ "_meta": {
+  "source": "claude-code 2.1.325 cli (headless, haiku)",
+  "captured_from": "real session"
+ },
+ "payload": {
+  "session_id": "a2802032-1126-4068-8313-bedb29e8c581",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/a2802032-1126-4068-8313-bedb29e8c581.jsonl",
+  "cwd": "/home/user/project",
+  "prompt_id": "54211bf0-bb8c-49f5-a002-e9358f1ce96d",
+  "permission_mode": "acceptEdits",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "echo MARKME original",
+   "description": "Echo marker text"
+  },
+  "tool_response": {
+   "stdout": "MARKME original",
+   "stderr": "",
+   "interrupted": false,
+   "isImage": false,
+   "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01WED8Ffqr5eHt9expaCg2iy",
+  "duration_ms": 37
+ }
+}

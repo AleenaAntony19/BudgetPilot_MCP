@@ -1,0 +1,35 @@
+{
+ "_meta": {
+  "source": "claude-code 2.1.325 cli (headless, haiku)",
+  "captured_from": "real session"
+ },
+ "payload": {
+  "session_id": "99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4.jsonl",
+  "cwd": "/home/user/project",
+  "prompt_id": "0912f5bd-c386-46a4-ba5e-4e98d600f118",
+  "permission_mode": "acceptEdits",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+   "file_path": "/home/user/project/pkg/big.py",
+   "offset": 100,
+   "limit": 20
+  },
+  "tool_response": {
+   "type": "text",
+   "file": {
+    "filePath": "/home/user/project/pkg/big.py",
+    "content": "def f33():\n    return 33\n\ndef f34():\n    return 34\n\ndef f35():\n    return 35\n\ndef f36():\n    return 36\n\ndef f37():\n    return 37\n\ndef f38():\n    return 38\n\ndef f39():\n    return 39",
+    "numLines": 20,
+    "startLine": 100,
+    "totalLines": 2700
+   }
+  },
+  "tool_use_id": "toolu_01HDyWz2dms7muhhH8RFJCnu",
+  "duration_ms": 3
+ }
+}

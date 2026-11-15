@@ -1,0 +1,32 @@
+{
+ "_meta": {
+  "source": "claude-code 2.1.325 cli (headless, haiku)",
+  "captured_from": "real session"
+ },
+ "payload": {
+  "session_id": "99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4.jsonl",
+  "cwd": "/home/user/project",
+  "prompt_id": "0912f5bd-c386-46a4-ba5e-4e98d600f118",
+  "permission_mode": "acceptEdits",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+   "file_path": "/home/user/project/notes.txt",
+   "content": "done"
+  },
+  "tool_response": {
+   "type": "create",
+   "filePath": "/home/user/project/notes.txt",
+   "content": "done",
+   "structuredPatch": [],
+   "originalFile": null,
+   "userModified": false
+  },
+  "tool_use_id": "toolu_01YFTyTaUhAryYZLictEWaCH",
+  "duration_ms": 4
+ }
+}

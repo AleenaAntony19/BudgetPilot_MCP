@@ -1,0 +1,26 @@
+{
+ "_meta": {
+  "source": "claude-code 2.1.325 cli (headless, haiku)",
+  "captured_from": "real session"
+ },
+ "payload": {
+  "session_id": "99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4",
+  "transcript_path": "/home/user/.claude/projects/-home-user-project/99e540c1-27b1-44ef-9a6a-c4cc8aab7fb4.jsonl",
+  "cwd": "/home/user/project",
+  "prompt_id": "0912f5bd-c386-46a4-ba5e-4e98d600f118",
+  "permission_mode": "acceptEdits",
+  "effort": {
+   "level": "medium"
+  },
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+   "command": "python -m pytest tests/test_add.py -q",
+   "description": "Run test_add.py with pytest quietly"
+  },
+  "tool_use_id": "toolu_019bvJSSBSWG1Aa9qFhsDdmL",
+  "error": "Exit code 1\nF                                                                        [100%]\n=================================== FAILURES ===================================\n___________________________________ test_add ___________________________________\n\n    def test_add():\n>       assert add(2, 3) == 5\nE       assert -1 == 5\nE        +  where -1 = add(2, 3)\n\ntests/test_add.py:4: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_add.py::test_add - assert -1 == 5\n1 failed in 0.02s",
+  "is_interrupt": false,
+  "duration_ms": 249
+ }
+}

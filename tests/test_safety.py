@@ -58,7 +58,11 @@ def test_set_kill_switch():
     assert is_kill_switch_active()
     assert os.environ.get("BP_MODE") == "off"
 
+    # Clearing the env switch falls back to the configured mode (default: off).
     set_kill_switch(False)
+    assert os.environ.get("BP_MODE") is None
+    from budgetpilot.core.state import set_mode
+    set_mode("observe")
     assert not is_kill_switch_active()
 
 
