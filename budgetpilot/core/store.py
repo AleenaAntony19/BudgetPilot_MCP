@@ -380,7 +380,8 @@ MIGRATIONS: List[Tuple[int, str, str]] = [
         CREATE TABLE IF NOT EXISTS transcript_cursor (
             session_id TEXT PRIMARY KEY,
             byte_offset INTEGER DEFAULT 0,
-            last_line_hash TEXT
+            last_line_hash TEXT,
+            prompt_id TEXT
         );
 
         -- paired A/B runs

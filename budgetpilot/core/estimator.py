@@ -76,9 +76,23 @@ class ExtractedFeatures:
     clause_count: int
     probe_hits: Optional[int] = None
     probe_latency_ms: float = 0.0
+    prompt_tokens_est: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+# Prompt-size bands (estimated tokens) used as a scope feature.
+SMALL_PROMPT_TOKENS = 80
+LARGE_PROMPT_TOKENS = 400
+VERY_LARGE_PROMPT_TOKENS = 1200
+
+
+def estimate_prompt_tokens(prompt: str, chars_per_token: float = 3.8) -> int:
+    """Estimated input tokens of a prompt (UTF-8 bytes / chars-per-token). An estimate."""
+    if not prompt:
+        return 0
+    return int(math.ceil(len(prompt.encode("utf-8", errors="replace")) / chars_per_token))
 
 
 def extract_features(prompt: str, repo_path: Union[Path, str] = ".") -> ExtractedFeatures:
@@ -92,8 +106,10 @@ def extract_features(prompt: str, repo_path: Union[Path, str] = ".") -> Extracte
 
     # 1. Stat-verified named file paths
     # Matches patterns like foo/bar.py, greet.py, tests/test_calc.py
-    file_pattern = r'\b(?:[a-zA-Z0-9_\-\.\/]+\/)?([a-zA-Z0-9_\-]+\.(?:py|js|ts|jsx|tsx|json|yaml|yml|md|txt|html|css|toml|sql|sh|go|rs|c|cpp|h))\b'
-    matches = re.findall(file_pattern, prompt_clean)
+    # The whole path is captured (not just the basename) so nested files such as
+    # pkg/calc.py can be verified against the repository.
+    file_pattern = r'\b((?:[a-zA-Z0-9_\-\.\/]+\/)?[a-zA-Z0-9_\-]+\.(?:py|js|ts|jsx|tsx|json|yaml|yml|md|txt|html|css|toml|sql|sh|go|rs|c|cpp|h))\b'
+    matches = [m.lstrip("./") for m in re.findall(file_pattern, prompt_clean)]
 
     verified_files: List[str] = []
     seen_files: Set[str] = set()
@@ -190,6 +206,7 @@ def extract_features(prompt: str, repo_path: Union[Path, str] = ".") -> Extracte
         clause_count=clause_count,
         probe_hits=probe_hits,
         probe_latency_ms=round(probe_latency_ms, 2),
+        prompt_tokens_est=estimate_prompt_tokens(prompt_clean),
     )
 
 
@@ -199,6 +216,7 @@ def estimate(
     threshold: float = 0.35,
     session_id: Optional[str] = None,
     db_path: Optional[Union[Path, str]] = None,
+    persist: bool = True,
 ) -> ScopePrediction:
     """
     Fast lexical probe predicting task scope (1, 2, or 3) and budget constraints.
@@ -259,13 +277,34 @@ def estimate(
             scores[2] += 3.0
             rationale_parts.append(f"probe '{features.top_identifier}' matches {hits} files across repo (Level 3)")
 
+    # A short prompt is only evidence of a small task when something in it is
+    # specific (one real file, a traceback or line, an identifier found in one
+    # file). "make it better" has no such evidence and must stay low-confidence
+    # so the round-up rule applies.
+    has_specific_evidence = (
+        num_files == 1 or features.has_traceback_or_line or features.probe_hits == 1
+    )
+
     # 5. Complexity / Length Cues
     if features.clause_count >= 4 or features.word_count > 60:
         scores[1] += 1.0
         scores[2] += 1.5
         rationale_parts.append("multi-clause/complex prompt structure")
-    elif features.word_count < 15 and num_files <= 1 and not features.broad_words:
+    elif features.word_count < 15 and num_files <= 1 and not features.broad_words and has_specific_evidence:
         scores[0] += 1.2
+
+    # 6. Prompt size: a short, specific prompt is evidence of a small task; a large
+    #    pasted spec or stack trace that names several files is evidence of a wider one.
+    size = features.prompt_tokens_est
+    if size < SMALL_PROMPT_TOKENS and num_files <= 1 and not features.broad_words and has_specific_evidence:
+        scores[0] += 1.0
+        rationale_parts.append(f"small prompt (~{size} tokens)")
+    elif size >= LARGE_PROMPT_TOKENS and num_files >= 2:
+        if num_files >= 3 or size >= VERY_LARGE_PROMPT_TOKENS:
+            scores[2] += 1.5
+        else:
+            scores[1] += 1.5
+        rationale_parts.append(f"large prompt (~{size} tokens) naming {num_files} files")
 
     # Compute softmax probabilities
     max_s = max(scores)
@@ -329,9 +368,12 @@ def estimate(
         metadata=prediction_metadata,
     )
 
+    if not persist:
+        return prediction
+
     # Save prediction to SQLite scope_predictions table
     try:
-        init_db(db_path)
+        init_db(db_path).close()
         if session_id:
             safe_execute_write(
                 conn_or_path=db_path,

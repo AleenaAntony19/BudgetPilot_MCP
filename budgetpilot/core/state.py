@@ -11,10 +11,11 @@ Precedence: environment (`BP_MODE`, `BP_BUDGET_SLIDER`, `BP_HITL`) over
 `$BP_HOME/config.json`. The mode is global across projects.
 """
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
 
 MODES = ("enforce", "observe", "off")
 SLIDERS = ("tight", "balanced", "loose")

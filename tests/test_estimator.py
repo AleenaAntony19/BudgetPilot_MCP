@@ -208,6 +208,9 @@ def test_execution_time_under_100ms():
         "Rename `format_currency` function everywhere",
     ]
 
+    # One-time database creation (schema migrations) is not estimator latency.
+    estimate("warm up")
+
     latencies = []
     for p in prompts:
         t0 = time.time()

@@ -9,9 +9,8 @@ hook start-up time is paid on every tool call.
 """
 
 from importlib import import_module
-from typing import Any, Dict, Tuple
 
-_EXPORTS: Dict[str, Tuple[str, str]] = {
+_EXPORTS = {
     "BpEvent": ("budgetpilot.core.types", "BpEvent"),
     "FailureClass": ("budgetpilot.core.types", "FailureClass"),
     "GateVerdict": ("budgetpilot.core.types", "GateVerdict"),
@@ -63,7 +62,7 @@ _EXPORTS: Dict[str, Tuple[str, str]] = {
 __all__ = sorted(_EXPORTS)
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str):
     target = _EXPORTS.get(name)
     if target is None:
         raise AttributeError(f"module 'budgetpilot.core' has no attribute '{name}'")
