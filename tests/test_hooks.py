@@ -709,3 +709,23 @@ def test_off_mode_is_read_from_config_without_env(repo, home):
             os.environ.pop(key, None)
             if value is not None:
                 os.environ[key] = value
+
+
+def test_grep_saving_is_estimated_from_the_capped_result(repo, home):
+    start_task(repo, home, NO_FILE_PROMPT)
+    set_task(home, scope=1)
+    run_hook(fixture("PreToolUse__Grep", repo), home)
+    assert db(home).execute("SELECT tokens_avoided_est FROM gate_events").fetchone()[0] == 0   # unknown before it runs
+    result = fixture("PostToolUse__Grep__head_limit", repo)   # real capture: 5 of 900 matching lines shown
+    assert (result["tool_response"]["numLines"], result["tool_response"]["totalLines"]) == (5, 900)
+    run_hook(result, home)
+    conn = db(home)
+    shown_tokens = conn.execute("SELECT result_tokens_est FROM tool_obs").fetchone()[0]
+    avoided = conn.execute("SELECT tokens_avoided_est FROM gate_events").fetchone()[0]
+    assert avoided == int(shown_tokens / 5 * 895) > 0
+
+
+def test_failure_message_for_a_bare_assert(repo, home):
+    start_task(repo, home, NO_FILE_PROMPT)
+    run_hook(fixture("PostToolUseFailure__Bash__pytest_fail", repo), home)
+    assert db(home).execute("SELECT sample_message FROM failure_fingerprints").fetchone()[0] == "assert -1 == 5"

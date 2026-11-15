@@ -366,6 +366,18 @@ def on_post_tool_use(payload: Dict[str, Any], cfg: Dict[str, Any], mode: str) ->
 
         _ingest(conn, payload)
         task_id = _task_id(payload, conn)
+        if tool == "Grep" and isinstance(response, dict) and response.get("appliedLimit") and task_id:
+            # The capped search reports how many lines matched in total, so the
+            # saving can be estimated from what was actually cut.
+            shown, total = response.get("numLines") or 0, response.get("totalLines") or 0
+            if isinstance(shown, int) and isinstance(total, int) and total > shown > 0:
+                avoided = int(tokens / shown * (total - shown))
+                hookdb.write(
+                    conn,
+                    "UPDATE gate_events SET tokens_avoided_est=? WHERE id=(SELECT MAX(id) FROM gate_events "
+                    "WHERE task_id=? AND rule='grep_head_limit' AND verdict='rewrite' AND tokens_avoided_est=0)",
+                    (avoided, task_id),
+                )
         with hookdb.TaskTxn(conn, task_id) as txn:
             task = txn.task
             if task is not None:

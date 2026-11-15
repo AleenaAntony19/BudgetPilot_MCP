@@ -63,6 +63,11 @@ def analyse_failure(command: str, output: str, cwd: str, state: Dict[str, Any]) 
     else:
         parsed = verifier.parse_generic_output(output, exit_code, repo_root=cwd)
     signature = verifier.compute_signature_hash(parsed["error_type"], parsed["top_in_repo_frame"])
+    if parsed["failure_message"] in ("Test suite execution failed.", ""):
+        # A bare `assert` has no "SomeError:" prefix; use pytest's own summary or first E line.
+        summary = re.search(r"^FAILED\s+\S+\s+-\s+(.+)$", output or "", re.M) or re.search(r"^E\s+(.+)$", output or "", re.M)
+        if summary:
+            parsed["failure_message"] = summary.group(1).strip()
     previous = set(state.get("signatures") or [])
     failure_class, rerun = verifier.classify_failure(
         error_type=parsed["error_type"],
