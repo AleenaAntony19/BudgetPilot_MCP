@@ -19,6 +19,8 @@ bp doctor --claude            # checks, and measured hook latency on your machin
 
 Then start a **new** Claude Code session (hooks are read at session start) and type `bp_mode_on`.
 
+`bp doctor` prints the wall time one hook call costs on your machine. On the development laptop (Linux, Python 3.12, idle) it measured a median of 36 to 39 ms per tool call with BudgetPilot on, 16 ms with it off, against 10 ms for starting Python alone.
+
 A plain `pip install -e .` also works, but its import hook adds tens of milliseconds to every hook call; `editable_mode=compat` avoids that.
 
 ### What `bp install` changes

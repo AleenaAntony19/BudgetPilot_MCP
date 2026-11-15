@@ -366,6 +366,23 @@ def on_post_tool_use(payload: Dict[str, Any], cfg: Dict[str, Any], mode: str) ->
 
         _ingest(conn, payload)
         task_id = _task_id(payload, conn)
+
+        # `pytest ... | tail` exits 0 even when tests failed: read the output itself.
+        is_test = tool == "Bash" and ccgate.is_test_command(str(ti.get("command", "")))
+        output_text = measured_text(tool, response) if is_test else ""
+        failed_in_output = is_test and ccgate.output_shows_test_failure(output_text)
+        prepared = None
+        if failed_in_output and task_id:
+            snapshot = hookdb.get_task(conn, task_id)
+            if snapshot is not None:
+                from budgetpilot.core.recovery_flow import prepare_failure
+
+                for key, default in ccgate.init_state().items():
+                    snapshot["state"].setdefault(key, default)
+                prepared = prepare_failure(str(ti.get("command", "")), output_text, str(payload.get("cwd") or ""),
+                                           snapshot, str(snapshot.get("budget_slider") or "balanced"))
+        failure_note = ""
+
         if tool == "Grep" and isinstance(response, dict) and response.get("appliedLimit") and task_id:
             # The capped search reports how many lines matched in total, so the
             # saving can be estimated from what was actually cut.
@@ -400,12 +417,27 @@ def on_post_tool_use(payload: Dict[str, Any], cfg: Dict[str, Any], mode: str) ->
                 if tool in ccgate.EDIT_TOOLS:
                     state["edit_epoch"] = int(state.get("edit_epoch", 0)) + 1
                     state.setdefault("edits_since_fail", []).append(ccgate.call_key(tool, ti))
-                elif tool == "Bash" and ccgate.is_test_command(str(ti.get("command", ""))) and state.get("last_failure"):
+                elif prepared is not None:
+                    from budgetpilot.core import recovery_flow
+
+                    for key, default in ccgate.init_state().items():
+                        state.setdefault(key, default)
+                    failure_note = recovery_flow.on_test_failure(
+                        conn, prepared, task, str(payload.get("cwd") or ""), hitl=bp_state.hitl_enabled(cfg),
+                        slider=str(task.get("budget_slider") or "balanced"), enforce=enforce,
+                    )
+                    if failure_note:
+                        task["overhead_tokens_est"] = int(task.get("overhead_tokens_est", 0)) + ccgate.est_tokens(
+                            failure_note, cpt)
+                elif is_test and not failed_in_output and state.get("last_failure"):
                     from budgetpilot.core.recovery_flow import on_test_pass
 
                     on_test_pass(conn, task)
         hookdb.log_tool_obs(conn, session_id, task_id, tool, tokens, trimmed_tokens,
                             truncated=bool(trimmed_tokens and enforce))
+        if failure_note:
+            output = output or {"hookSpecificOutput": {"hookEventName": "PostToolUse"}}
+            output["hookSpecificOutput"]["additionalContext"] = failure_note
         return output
     finally:
         conn.close()

@@ -321,10 +321,12 @@ def analyse(runs: List[Dict[str, Any]], treatment: str = "enforce") -> Dict[str,
         }
 
     gate: Dict[str, int] = {}
+    baseline_would: Dict[str, int] = {}
     for run in runs:
-        if run["arm"] == treatment:
+        target = gate if run["arm"] == treatment else baseline_would if run["arm"] == BASELINE else None
+        if target is not None:
             for key, count in ((run.get("hooks") or {}).get("gate") or {}).items():
-                gate[key] = gate.get(key, 0) + count
+                target[key] = target.get(key, 0) + count
 
     equal_status = compute_paired_cost_difference(
         [{"task_id": r["task_id"], "repeat": r["repeat"], "arm": r["arm"], "passed": r["passed"],
@@ -353,6 +355,7 @@ def analyse(runs: List[Dict[str, Any]], treatment: str = "enforce") -> Dict[str,
         "mean_change_units": round(mean_abs) if n else None,
         "ci_low_units": round(abs_low) if n else None, "ci_high_units": round(abs_high) if n else None,
         "arms": {arm: arm_stats(arm) for arm in arms}, "per_task": per_task, "gate_rules": gate,
+        "baseline_would_rules": baseline_would,
         "equal_status_pairs": equal_status.n_equal_status if equal_status else 0,
         "equal_status_mean_saving_units": round(equal_status.mean_paired_savings_usd) if equal_status else None,
         "equal_status_ci_units": [round(equal_status.ci_lower), round(equal_status.ci_upper)] if equal_status else None,
@@ -375,7 +378,8 @@ def render_results(result: Dict[str, Any]) -> str:
     lines = [
         "# BudgetPilot paired A/B results",
         "",
-        f"Experiment `{result['experiment']}`. Written by `bp ab`; do not edit by hand.",
+        f"Experiment `{result['experiment']}`. Written by `bp ab`; do not edit by hand. "
+        f"Raw data: `docs/results/{result['experiment']}.json` (when archived) or `bench_results/`.",
         "",
         "## Result",
         "",
@@ -431,12 +435,21 @@ def render_results(result: Dict[str, Any]) -> str:
         obs, enf = row.get(BASELINE, {}), row.get(a["treatment"], {})
         lines.append(f"| {task_id} | {scopes.get(task_id, '–')} | {'yes' if row['held_out'] else 'no'} | {row['pairs']} | "
                      f"{change} | {obs.get('passed', 0)}/{obs.get('runs', 0)} | {enf.get('passed', 0)}/{enf.get('runs', 0)} |")
-    lines += ["", "## What the gate did (enforce arm, all runs)", ""]
+    lines += ["", "## Where the difference came from", ""]
+    lines += _mechanism(a, base, treat)
+    lines += ["", "### Gate decisions in the enforce arm (all runs)", ""]
     if a["gate_rules"]:
         lines += ["| Decision : rule | Count |", "|---|---|"]
         lines += [f"| `{key}` | {count} |" for key, count in sorted(a["gate_rules"].items(), key=lambda kv: -kv[1])]
     else:
         lines.append("The gate did not rewrite or deny any call.")
+    would = a.get("baseline_would_rules") or {}
+    lines += ["", "### What the gate would have done in the observe arm (logged, not applied)", ""]
+    if would:
+        lines += ["| Decision : rule | Count |", "|---|---|"]
+        lines += [f"| `{key}` | {count} |" for key, count in sorted(would.items(), key=lambda kv: -kv[1])]
+    else:
+        lines.append("Nothing: no call in the observe arm matched a gate rule.")
     lines += [
         "",
         "## Checks",
@@ -476,6 +489,30 @@ def render_results(result: Dict[str, Any]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _mechanism(a: Dict[str, Any], base: Dict[str, Any], treat: Dict[str, Any]) -> List[str]:
+    """Plain statement of what differed between the arms, from the recorded data only."""
+    if not a["pairs"] or not base.get("mean_turns") or not treat.get("mean_turns"):
+        return ["Not enough complete pairs to say."]
+    denies = sum(c for k, c in a["gate_rules"].items() if k.startswith(("deny:", "ask:")))
+    rewrites = sum(c for k, c in a["gate_rules"].items() if k.startswith("rewrite:"))
+    lines = [
+        f"- Model turns per run: {treat['mean_turns']:.1f} with BudgetPilot on, {base['mean_turns']:.1f} observing.",
+        f"- Output tokens per run: {_n(treat['mean_output_tokens'])} on, {_n(base['mean_output_tokens'])} observing.",
+        f"- Calls the gate changed in the enforce arm: {rewrites} rewritten, {denies} denied or sent to a dialog.",
+        f"- Text BudgetPilot added per run: about {_n(treat.get('mean_overhead_tokens_est'))} tokens (estimated).",
+    ]
+    if denies == 0 and rewrites <= a["pairs"]:
+        lines += [
+            "",
+            "The gate changed few calls, so in this run the difference did **not** come from blocked or narrowed "
+            "tool calls. It came from the short notes BudgetPilot adds at the start (the scope limits and the "
+            "terse-output contract): the model made fewer tool calls and wrote less. The observe-arm table below "
+            "shows calls the baseline agent made that the enforce-arm agent did not attempt. Fewer verification "
+            "runs can cost correctness on harder tasks than these; the pass rate above is the check.",
+        ]
+    return lines
 
 
 def write_outputs(result: Dict[str, Any], out_dir: Optional[Path] = None, results_md: Optional[Path] = None) -> Dict[str, str]:

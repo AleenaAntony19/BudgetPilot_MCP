@@ -729,3 +729,61 @@ def test_failure_message_for_a_bare_assert(repo, home):
     start_task(repo, home, NO_FILE_PROMPT)
     run_hook(fixture("PostToolUseFailure__Bash__pytest_fail", repo), home)
     assert db(home).execute("SELECT sample_message FROM failure_fingerprints").fetchone()[0] == "assert -1 == 5"
+
+
+def test_missing_test_runner_is_not_treated_as_a_code_failure(repo, home):
+    start_task(repo, home, NO_FILE_PROMPT)
+    payload = fixture("PostToolUseFailure__Bash__pytest_fail", repo)
+    payload["error"] = "Exit code 1\n/usr/bin/python: No module named pytest"
+    text = run_hook(payload, home, hitl="1")[2]["hookSpecificOutput"]["additionalContext"]
+    assert "test runner is not installed" in text
+    conn = db(home)
+    assert conn.execute("SELECT COUNT(*) FROM failure_fingerprints").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM recovery_events").fetchone()[0] == 0
+    assert task_row(home)["pending_recovery"] is None
+
+
+def _piped_failure(repo, use_id="pf1"):
+    """A failing run piped through tail: exit code 0, so it arrives as an ordinary PostToolUse."""
+    failure = fixture("PostToolUseFailure__Bash__pytest_fail", repo)
+    stdout = failure["error"].split("\n", 1)[1]          # the real captured pytest output, without "Exit code 1"
+    return tool_payload(repo, "PostToolUse", "Bash", {"command": "python -m pytest tests/test_add.py -q 2>&1 | tail -n 25"},
+                        use_id, tool_response={"stdout": stdout, "stderr": "", "interrupted": False, "isImage": False,
+                                               "noOutputExpected": False})
+
+
+def test_failure_hidden_behind_a_pipe_is_still_detected(repo, home):
+    start_task(repo, home, NO_FILE_PROMPT)
+    _, _, out = run_hook(_piped_failure(repo), home, hitl="0")
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    assert out["hookSpecificOutput"]["additionalContext"].startswith("BudgetPilot [")
+    conn = db(home)
+    assert conn.execute("SELECT failure_class, sample_message FROM failure_fingerprints").fetchone()[:] == (
+        "assertion_local", "assert -1 == 5")
+    assert conn.execute("SELECT decided_by FROM recovery_events").fetchone()[0] == "auto"
+    # same failure through the failure event has the same signature
+    run_hook(fixture("PostToolUseFailure__Bash__pytest_fail", repo, tool_use_id="pf2"), home)
+    assert conn.execute("SELECT COUNT(*), MAX(count) FROM failure_fingerprints").fetchone()[:] == (1, 2)
+
+
+def test_piped_failure_does_not_count_as_a_pass(repo, home):
+    start_task(repo, home, NO_FILE_PROMPT)
+    run_hook(fixture("PostToolUseFailure__Bash__pytest_fail", repo), home)
+    run_hook(_piped_failure(repo), home)
+    assert db(home).execute("SELECT COUNT(*) FROM recovery_events WHERE outcome='resolved'").fetchone()[0] == 0
+    assert "last_failure" in task_row(home)["state"]
+
+
+@pytest.mark.parametrize("text,failed", [
+    ("1 failed, 3 passed in 0.02s", False),                       # no pytest banner: not enough to be sure
+    ("=========== 1 failed, 3 passed in 0.02s ===========", True),
+    ("FAILED tests/test_add.py::test_add - assert -1 == 5", True),
+    ("E       assert -1 == 5", True), ("--- FAIL: TestAdd (0.00s)", True), ("test result: FAILED. 1 passed; 1 failed", True),
+    ("Tests:       1 failed, 4 passed, 5 total", True),
+    ("..                                    [100%]\n2 passed in 0.01s", False), ("", False),
+    ("ok  \tpkg/calc\t0.002s", False), ("test result: ok. 5 passed; 0 failed", False),
+])
+def test_output_failure_detection(text, failed):
+    from budgetpilot.core.ccgate import output_shows_test_failure
+
+    assert output_shows_test_failure(text) is failed

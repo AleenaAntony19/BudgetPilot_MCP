@@ -4,7 +4,7 @@ BudgetPilot is a set of Claude Code hooks, a small MCP server and a local dashbo
 It sizes each prompt, narrows or blocks wasteful tool calls, limits what a task may add to the context, and steps in when tests fail.
 It never calls a model itself: Claude Code, logged in with your plan, stays the model.
 
-**Measured effect:** see [docs/RESULTS.md](docs/RESULTS.md). That paired test is the only source of a savings figure; everything else BudgetPilot shows is labelled as an estimate.
+**Measured effect so far:** in a first paired test (6 pairs, Claude Haiku 5.5, a small synthetic repository), sessions with BudgetPilot on used **15.5% fewer billing units** than sessions with it only observing (95% CI 9.8% to 20.4% fewer), and both solved 6 of 6 tasks. In that run the saving came from the short notes BudgetPilot adds, which led the model to make fewer tool calls and write less; the gate itself changed only 4 calls. It is a small sample on easy tasks: read [docs/RESULTS.md](docs/RESULTS.md) before relying on it. That paired test is the only source of a savings figure; everything else BudgetPilot shows is labelled as an estimate.
 
 ## Quickstart
 
