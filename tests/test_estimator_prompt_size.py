@@ -1,11 +1,15 @@
 """Prompt size as a scope feature, and the round-up-when-uncertain rule."""
 
+import shutil
+
 import pytest
 
 from budgetpilot.core.estimator import estimate, estimate_prompt_tokens
 from tests.hookutil import make_repo
 
 SPEC = "We need to change behaviour. " * 80  # ~600 estimated tokens
+# Without ripgrep the identifier probe is skipped, so an identifier-only prompt has less evidence.
+NEEDS_RG = pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep (rg) not installed")
 
 
 @pytest.fixture(scope="module")
@@ -17,7 +21,7 @@ def repo(tmp_path_factory):
     # small and specific -> scope 1
     ("Fix add in pkg/calc.py", 1, False),
     ("pkg/calc.py:2: AssertionError in add, line 2", 1, False),
-    ("Why does `util_c` return 1?", 1, False),
+    pytest.param("Why does `util_c` return 1?", 1, False, marks=NEEDS_RG),
     ("In pkg/calc.py the add function subtracts. " + "Please be careful about edge cases. " * 6, 1, False),
     # several named files -> wider
     ("Update pkg/calc.py and tests/test_add.py so add works", 2, False),

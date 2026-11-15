@@ -28,6 +28,7 @@ Tests cover:
 """
 
 import json
+import shutil
 from pathlib import Path
 import subprocess
 import time
@@ -158,6 +159,7 @@ def test_scope_3_broad_keywords_prediction():
     assert "broad-scope keywords detected" in pred.rationale
 
 
+@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep (rg) not installed")
 def test_identifier_probe_ripgrep(tmp_path: Path):
     """Verify ripgrep probe identifies single-file vs multi-file vs cross-cutting identifiers."""
     # 1 file hit
