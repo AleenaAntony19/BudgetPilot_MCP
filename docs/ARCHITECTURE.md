@@ -1,0 +1,118 @@
+# BudgetPilot architecture
+
+BudgetPilot is a set of Claude Code hooks, a small MCP server and a local dashboard. It never calls a model. Claude Code, logged in with the user's plan, is the model; BudgetPilot acts at the edges of each tool call.
+
+## Flow
+
+```mermaid
+flowchart TD
+    U["User prompt in Claude Code"] --> UPS
+
+    subgraph Hooks["Hook process: python -m budgetpilot.adapters.hooks (one short run per event)"]
+        UPS["UserPromptSubmit<br/>bp_* command? consume it, 0 model tokens<br/>else: estimate scope 1/2/3, open a task, add one short note"]
+        PRE["PreToolUse: execution gate<br/>allow · rewrite (updatedInput) · deny · ask"]
+        POST["PostToolUse<br/>measure the result · trim noisy Bash output"]
+        FAIL["PostToolUseFailure<br/>classify a failed test run · fingerprint · route (3E)"]
+        STOP["Stop / SessionEnd<br/>read the transcript into the token ledger"]
+    end
+
+    UPS --> M["Model turn (Claude Code)"]
+    M -->|tool call| PRE
+    PRE -->|allowed or rewritten| T["Tool runs"]
+    PRE -->|denied, with a reason| M
+    T -->|exit 0| POST --> M
+    T -->|non-zero exit| FAIL --> M
+    M -->|finished| STOP
+
+    FAIL -. "human in the loop" .-> ASK["Options shown to the user<br/>Estimate · Execute · Expand · Escalate · retry · deny · mode_off"]
+    ASK --> MCP["MCP tool bp_recovery_choose"]
+    MCP --> M
+
+    DB[("~/.budgetpilot/bp.db<br/>tasks · gate events · token ledger<br/>failure fingerprints · recovery decisions · A/B runs")]
+    Hooks --- DB
+    MCP --- DB
+    DASH["Dashboard, 127.0.0.1 only, read-only"] --- DB
+    AB["bp ab: paired observe vs enforce runs"] --- DB
+```
+
+## Stages
+
+| Stage | Where | What it does |
+|---|---|---|
+| 1. Estimate | `core/estimator.py`, called from `UserPromptSubmit` | Counts the prompt (estimate), looks for named files, tracebacks and broad wording, and picks scope 1, 2 or 3. On low confidence it rounds the scope **up**. The scope sets every limit below. |
+| 2. Gate | `core/ccgate.py`, called from `PreToolUse` | Narrows unbounded `Read` and `Grep` calls through `updatedInput` (no extra model round-trip), and denies a few wasteful calls with a concrete alternative. |
+| 3. Output limits | `core/ccgate.py`, `adapters/hook_engine.py` | A per-task budget for context added by tools and for output, an edit-size cap, a duplicate-retry blocker, trimming of noisy Bash output, and a one-time terse-output contract. |
+| 4. Verify and recover (3E) | `core/recovery_flow.py`, called from `PostToolUseFailure` | Classifies a failed test run, fingerprints it, and asks the router which action has the best expected value. With a human present the user chooses; headless, the recommendation is applied as text. |
+| 5. Ledger | `core/cc_ledger.py`, called from `PostToolUse` and `Stop` | Reads real token usage from the session transcript, one row per API message. |
+
+## Scope limits
+
+One table, `core/scope.py`, read by every component. Override any value under `scope_limits` in `~/.budgetpilot/config.json`.
+
+| | Scope 1 | Scope 2 | Scope 3 |
+|---|---|---|---|
+| Files read beyond those named in the prompt | 3 | 8 | 25 |
+| Read window (lines) | 400 | 800 | unlimited |
+| Match-everything search of the whole repository | denied | denied | allowed |
+| Full test-suite run | denied | denied | allowed |
+| Grep result cap (lines) | 50 | 120 | 250 |
+| Lines per edit of an existing file | 60 | 150 | 400 |
+| Context budget (estimated tokens added by tools) | 6,000 | 16,000 | 40,000 |
+| Output budget (tokens) | 1,500 | 4,000 | 10,000 |
+
+The budget dial scales the two budgets: tight ×0.75, balanced ×1, loose ×1.5. These numbers are starting points, not tuned optima; `docs/RESULTS.md` shows what they did in the paired test.
+
+## Gate decisions
+
+| Call | Condition | Decision |
+|---|---|---|
+| `Read` | no `limit` (or one above the window) on a file longer than the window | allow with `limit` set to the window, plus a one-line note telling the model how to read more |
+| `Read` | first read of a file the prompt or a traceback named | never gated |
+| `Read` | more unnamed files than the scope allows | deny, listing the files already read |
+| `Grep` | no `head_limit`, `0`, or one above the cap | allow with `head_limit` set to the cap |
+| `Grep`, `Glob` | match-everything pattern over the whole repository | deny, with a narrower suggestion |
+| `Bash` | test run with no path, node id or name filter | deny, suggesting a targeted command |
+| `Bash` | `find /`, `ls -R`, recursive `grep` over the root, `cat` of a file longer than the window | deny, suggesting the right tool |
+| `Edit`, `Write` | more new lines than the cap, on a file that already exists | deny; creating a new file is never blocked |
+| edit or command | identical call already made twice this task, or the same edit already followed by the same failure | deny |
+| edit or test run | a recovery decision is pending and a human is present | ask |
+| any | 80% of the task budget used | one-line note, once |
+| any | task budget reached | ask (human present) or one denial with advice (headless), once |
+
+Rules that always hold:
+
+- `allow` with a changed input skips Claude Code's permission prompt, so it is returned only for `Read` and `Grep`, only for paths inside the working directory, and never for secret-looking paths (`.env`, keys, `.ssh/`, credentials). Everything else gets no opinion and Claude Code's own permission flow decides.
+- A denied call repeated within the next three tool calls is allowed (an explicit override).
+- After three denials in one task the gate only observes for the rest of that task.
+- The same payload always gives the same answer (decisions are stored per `tool_use_id`).
+
+## The 3E recovery loop
+
+| 3E step | Router action | What the agent is told |
+|---|---|---|
+| **Estimate** again | `replan` | Files are restored to their state before this task (only when the human chose it), then: restate a 3-line plan and make the smallest change. |
+| **Execute** again | `reflect` | Retry the smallest fix using the failure; no new reads. |
+| **Expand** scope | `expand_scope` | Scope +1, larger budgets, and the files the failure points at are unlocked. |
+| **Escalate** | `escalate` | Advisory only. BudgetPilot cannot switch the model; it tells the agent to suggest `/model` to the user. |
+
+The router scores each action as `U(a) = P_success(a) − λ · C(a)`, with λ from the budget dial (tight 2.5, balanced 0.5, loose 0.1) or from CRC calibration when a calibration table exists. The CRC loss is a 0/1 failure indicator, so its guarantee bounds the failure rate on the calibration set, not token cost. The action costs `C(a)` are fixed constants.
+
+Every failure is stored in `failure_fingerprints`, keyed by a hash of the error type and the top in-repository frame, per repository. It persists across sessions; when a known failure returns, the options mention what resolved it before.
+
+## Process model
+
+- Each hook event starts a short Python process. With mode `off` the entry point (`adapters/hooks.py`) returns before importing JSON or SQLite.
+- Hooks fail open: any error, bad input or locked database means exit 0 and no output.
+- Task state lives in SQLite (`tasks_bp.state`), updated under `BEGIN IMMEDIATE` because Claude Code runs tool calls in parallel. A locked database is never waited on: log rows go to `outbox.jsonl` and are replayed at the next `Stop`.
+- BudgetPilot is append-only with respect to the conversation. It never edits the transcript or an earlier tool result, which would invalidate the prompt cache.
+
+## What it cannot do
+
+- It cannot cap the model's output tokens. Budgets are enforced at tool boundaries and by asking the model to be brief.
+- It cannot shorten the output of a **failed** command: Claude Code does not let a hook rewrite a failure result.
+- It cannot see or change the system prompt, the conversation history or the model choice.
+- It only acts where Claude Code runs hooks. Other hosts can use the MCP proxy tools (`bp_read_file` and so on), which enforce the same scope limits only when the agent chooses to call them.
+
+## Legacy local-model mode
+
+`bp run`, `bp chat` and `bp bench` drive a local Ollama model through BudgetPilot's own agent loop. They predate the Claude Code integration, need `pip install "budgetpilot[local]"`, and are not part of the path described above.
