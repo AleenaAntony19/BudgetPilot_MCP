@@ -22,7 +22,7 @@ HOOK_EVENTS: List[Tuple[str, Optional[str], int]] = [
     ("SessionStart", None, 10),
     ("UserPromptSubmit", None, 10),
     ("PreToolUse", "Read|Grep|Glob|Bash|Edit|MultiEdit|Write", 10),
-    ("PostToolUse", "Bash|Read|Grep|Glob", 10),
+    ("PostToolUse", "Bash|Read|Grep|Glob|Edit|MultiEdit|Write", 10),
     ("PostToolUseFailure", "Bash", 10),
     ("Stop", None, 30),
     ("SessionEnd", None, 30),

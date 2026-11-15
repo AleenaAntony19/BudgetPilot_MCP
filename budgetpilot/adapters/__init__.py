@@ -7,12 +7,11 @@ or `pydantic`. Hook start-up time is paid on every tool call.
 """
 
 from importlib import import_module
-from typing import Any
 
 _MCP_NAMES = {"create_mcp_server", "mcp", "run_server"}
 
 
-def __getattr__(name: str) -> Any:
+def __getattr__(name: str):
     if name in _MCP_NAMES:
         return getattr(import_module("budgetpilot.adapters.mcp_server"), name)
     hooks = import_module("budgetpilot.adapters.hooks")
