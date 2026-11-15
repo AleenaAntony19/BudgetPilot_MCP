@@ -36,6 +36,9 @@ def connect(path: Optional[Path] = None, timeout: float = LOCK_TIMEOUT_S) -> sql
     conn = sqlite3.connect(str(path or db_path()), timeout=timeout, isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)};")
+    # WAL + NORMAL: a commit does not fsync, so a hook never waits on the disk.
+    # A power cut can lose the last few telemetry rows, never corrupt the file.
+    conn.execute("PRAGMA synchronous = NORMAL;")
     return conn
 
 

@@ -665,12 +665,47 @@ def test_property_any_payload_exits_zero_with_empty_or_valid_output(repo, home):
         assert rc == 0 and (out == "" or isinstance(json.loads(out), dict))
 
 
-def test_hook_process_imports_no_heavy_modules():
+def test_hook_process_imports_no_heavy_modules(home):
     code = (
-        "import sys, io, json; sys.stdin = io.TextIOWrapper(io.BytesIO(b'{}'));"
+        "import sys, io; sys.stdin = io.TextIOWrapper(io.BytesIO(sys.argv[1].encode()));"
         "from budgetpilot.adapters import hooks; hooks.main();"
         "print(sorted(m for m in ('pydantic', 'mcp', 'ollama', 'yaml', 'typing', 'dataclasses', 'subprocess',"
-        " 'budgetpilot.config', 'budgetpilot.core.store') if m in sys.modules))"
+        " 'budgetpilot.config', 'budgetpilot.core.store', 'json', 'sqlite3', 'budgetpilot.adapters.hook_engine')"
+        " if m in sys.modules))"
     )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={**os.environ, "BP_MODE": "off"})
-    assert out.stdout.strip() == "[]", out.stdout + out.stderr
+    payload = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {}})
+
+    def loaded(mode):
+        env = {**os.environ, "BP_MODE": mode, "BP_HOME": str(home)}
+        out = subprocess.run([sys.executable, "-c", code, payload], capture_output=True, text=True, env=env)
+        return out.stdout.strip(), out.stderr
+
+    # off: the entry point returns before loading the engine, json or sqlite
+    assert loaded("off") == ("[]", "")
+    # enforce: the engine loads, but still nothing heavy (the first run creates the database)
+    loaded("enforce")
+    assert loaded("enforce")[0] == "['budgetpilot.adapters.hook_engine', 'json', 'sqlite3']"
+
+
+def test_off_mode_is_read_from_config_without_env(repo, home):
+    """The quick mode check (plain string search of config.json) agrees with the real parser."""
+    from budgetpilot.adapters import hooks
+
+    env_backup = {k: os.environ.pop(k, None) for k in ("BP_MODE", "BP_HOME")}
+    os.environ["BP_HOME"] = str(home)
+    try:
+        assert hooks._quick_mode() == "off"                       # no config file yet
+        for text, expected in [
+            ('{"mode": "enforce"}', "enforce"), ('{\n  "mode":"observe",\n "x": 1}', "observe"),
+            ('{"budget_slider": "tight"}', "off"), ('{"mode": "weird"}', None), ("not json", None),
+            ('{"mode": "off", "tiers": {"cheap": {"model": "m"}}}', "off"),
+        ]:
+            (home / "config.json").write_text(text)
+            assert hooks._quick_mode() == expected, text
+        os.environ["BP_MODE"] = "enforce"
+        assert hooks._quick_mode() == "enforce"
+    finally:
+        for key, value in env_backup.items():
+            os.environ.pop(key, None)
+            if value is not None:
+                os.environ[key] = value
