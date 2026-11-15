@@ -393,11 +393,11 @@ def _grep_rule(ti: Dict[str, Any], cwd: str, limits: ScopeLimits) -> Decision:
     except (TypeError, ValueError):
         head = None
     if head is None or head == 0 or head > cap:
-        mode = ti.get("output_mode") or "files_with_matches"
-        avoided = 0 if mode != "content" else max(0, ((head or 4 * cap) - cap)) * TOKENS_PER_LINE_EST // 2
+        # What this saves is unknown until the search has run; the PostToolUse
+        # hook fills in the estimate from the result's own line counts.
         return Decision(
             "rewrite", "grep_head_limit", f"BudgetPilot: results capped at {cap} lines",
-            updated_input={**ti, "head_limit": cap}, tokens_avoided_est=avoided,
+            updated_input={**ti, "head_limit": cap},
         )
     return Decision("allow", "grep_ok")
 
