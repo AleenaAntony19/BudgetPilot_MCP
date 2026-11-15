@@ -141,6 +141,18 @@ BudgetPilot prints nothing on either. A `Stop` hook that returns `decision: "blo
 | `SessionEnd` hooks share a 1.5 s budget unless a hook sets its own `timeout`; the budget then rises to the highest value, up to 60 s. | Docs |
 | All matching hooks for an event run in parallel. | Docs; observed (capture and probe hooks both ran) |
 
+## What BudgetPilot registers
+
+| Event | Matcher | Timeout |
+|---|---|---|
+| `SessionStart`, `UserPromptSubmit` | none | 10 s |
+| `PreToolUse` | `Read\|Grep\|Glob\|Bash\|Edit\|MultiEdit\|Write` | 10 s |
+| `PostToolUse` | `Bash\|Read\|Grep\|Glob\|Edit\|MultiEdit\|Write` | 10 s |
+| `PostToolUseFailure` | `Bash` | 10 s |
+| `Stop`, `SessionEnd` | none | 30 s |
+
+`PostToolUse` includes the edit tools because that event is the only signal that an edit actually ran: it is how BudgetPilot learns that the user allowed a permission dialog, and that code changed since a command last ran. The command is `<absolute python> -m budgetpilot.adapters.hooks`.
+
 ## Matchers
 
 - `*`, an empty string, or no matcher matches everything.
