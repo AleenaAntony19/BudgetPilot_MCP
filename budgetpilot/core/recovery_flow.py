@@ -82,10 +82,18 @@ def analyse_failure(command: str, output: str, cwd: str, state: Dict[str, Any]) 
         attempt_number=int(state.get("fail_count", 0)) + 1,
         full_output=output or "",
     )
+    # The test runner itself is missing: nothing about the code can fix that.
+    runner_missing = bool(re.search(
+        r"No module named '?(pytest|unittest|jest|vitest)|(pytest|npm|cargo|go|jest|vitest): (command )?not found"
+        r"|command not found: (pytest|npm|cargo|go)", output or ""))
+    if runner_missing:
+        parsed["failure_message"] = "the test runner is not available in this environment"
+        failure_class, rerun = verifier.FailureClass.CAPABILITY_GAP, True
     return {
         "signature": signature,
         "failure_class": failure_class.value,
         "env_noise": bool(rerun),
+        "runner_missing": runner_missing,
         "error_type": parsed["error_type"],
         "message": str(parsed["failure_message"])[:300],
         "failing_test_ids": list(parsed["failing_test_ids"])[:5],
@@ -421,6 +429,9 @@ def on_test_failure(conn: sqlite3.Connection, prepared: Dict[str, Any], task: Di
     state = task["state"]
     analysis = prepared["analysis"]
     if analysis["env_noise"]:
+        if analysis.get("runner_missing"):
+            return ("BudgetPilot: the test runner is not installed here. Do not change code to work around it; "
+                    "tell the user.") if enforce else ""
         state["last_failure"] = {"signature": analysis["signature"], "class": analysis["failure_class"]}
         return "BudgetPilot: this looks like an environment or flaky failure. Re-run once before changing code." \
             if enforce else ""

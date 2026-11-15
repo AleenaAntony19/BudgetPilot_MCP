@@ -186,6 +186,22 @@ def is_test_command(command: str) -> bool:
     return bool(TEST_RUNNER_RE.search(command or ""))
 
 
+_FAILURE_OUTPUT_RE = re.compile(
+    r"^=+ .*\b\d+ (?:failed|error|errors)\b|^FAILED \S|^=+ (?:FAILURES|ERRORS) =+|^E\s{2,}\S|"
+    r"^FAIL(?:ED)?[:\s]|^--- FAIL|test result: FAILED|^Tests:\s+\d+ failed|^Traceback \(most recent call last\)",
+    re.MULTILINE,
+)
+
+
+def output_shows_test_failure(text: str) -> bool:
+    """
+    True when a test run's output reports failures. Needed because a command
+    such as `pytest ... | tail` exits 0 even when tests failed, so the failure
+    reaches the hooks as an ordinary result.
+    """
+    return bool(text) and bool(_FAILURE_OUTPUT_RE.search(text))
+
+
 def _has_positional(args: List[str], value_opts: Any = ()) -> bool:
     skip = False
     for arg in args:

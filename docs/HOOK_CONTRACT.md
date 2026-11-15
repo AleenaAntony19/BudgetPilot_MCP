@@ -64,6 +64,7 @@ Where the capture and the docs disagree, the capture wins. Items that could not 
 
 - **A failing command is a `PostToolUseFailure`, not a `PostToolUse`.** A `pytest` run with exit code 1 arrived only as `PostToolUseFailure`, with `error` set to `"Exit code 1\n<combined output>"`. Failure detection therefore reads `error`.
 - **A failed command's output cannot be rewritten.** `PostToolUseFailure` accepts only `additionalContext`. BudgetPilot cannot shorten failing test output; it can only add a short note next to it.
+- **A failing test run can still arrive as `PostToolUse`.** In a real session the model ran `python -m pytest ... 2>&1 | tail -n 25`; the pipe made the exit code 0. BudgetPilot therefore also reads the output of test commands for failure markers.
 - **Claude Code already cuts large Bash output.** A 200,000-character output reached the hook (and the model) as 30,000 characters, with the full text in `persistedOutputPath`. BudgetPilot's trimming works on what is left.
 
 ## Output (stdout, one JSON object, exit code 0)

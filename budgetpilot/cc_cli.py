@@ -291,6 +291,7 @@ def measure_hooks(runs: int = 10) -> Dict[str, Any]:
         os.makedirs(repo)
         with open(os.path.join(repo, "big.py"), "w", encoding="utf-8") as f:
             f.write("x = 1\n" * 3000)
+        open(os.path.join(repo, "none.jsonl"), "w").close()  # an (empty) transcript, so Stop does not wait for one
         home = os.path.join(tmp, "home")
         command = [sys.executable, "-m", installer.HOOK_MODULE]
         env = {k: v for k, v in os.environ.items() if not k.startswith("BP_")}
