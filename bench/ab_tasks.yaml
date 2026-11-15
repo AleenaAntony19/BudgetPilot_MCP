@@ -1,0 +1,67 @@
+# Tasks for the paired A/B test (`bp ab`), run against bench/fixture_repo.
+#
+# Schema: id, prompt, base_commit, verify_command, expected_scope, hidden_test, held_out, smoke
+# - hidden_test is copied into the working copy as _hidden/ only after the agent has stopped,
+#   then verify_command decides pass or fail. The agent never sees it.
+# - held_out tasks must not be used to tune scope limits; report them separately.
+
+- id: t1_discount
+  prompt: "apply_discount in shop/pricing.py is wrong: 10 percent off 200.0 should be 180.0, but it returns 190.0. Fix it."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t1_discount.py"
+  hidden_test: fixture_hidden/test_t1_discount.py
+  expected_scope: 1
+  smoke: true
+
+- id: t2_cart_quantity
+  prompt: "Cart.subtotal() ignores quantities: adding 3 units of a product is charged as 1. Fix it."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t2_cart_quantity.py"
+  hidden_test: fixture_hidden/test_t2_cart_quantity.py
+  expected_scope: 1
+
+- id: t3_sku_case
+  prompt: "Product lookup should ignore case and surrounding whitespace: catalog.find_by_sku('gar-0001') must return the same row as 'GAR-0001'. It currently raises UnknownProduct. Fix it in shop/catalog.py."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t3_sku_case.py"
+  hidden_test: fixture_hidden/test_t3_sku_case.py
+  expected_scope: 1
+
+- id: t4_eu_tax
+  prompt: "Add a region 'EU' taxed at 20 percent in shop/tax.py, and add a tax_exempt flag to Cart (shop/cart.py, constructor keyword, default False): when it is true, total_with_tax() must equal the subtotal."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t4_eu_tax.py"
+  hidden_test: fixture_hidden/test_t4_eu_tax.py
+  expected_scope: 2
+  smoke: true
+
+- id: t5_out_of_stock
+  prompt: "Add an OutOfStock exception (a ShopError) to shop/errors.py. Inventory.reserve in shop/inventory.py must raise it, without reserving anything, when more units are requested than are available."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t5_out_of_stock.py"
+  hidden_test: fixture_hidden/test_t5_out_of_stock.py
+  expected_scope: 2
+
+- id: t6_rename_format_money
+  prompt: "Rename the helper format_money to format_currency everywhere across the codebase (shop package and tests). Do not leave an alias. All existing tests must still pass."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t6_rename_format_money.py tests"
+  hidden_test: fixture_hidden/test_t6_rename_format_money.py
+  expected_scope: 3
+  smoke: true
+
+- id: t7_slugify
+  prompt: "slugify in shop/utils.py leaves a trailing hyphen: slugify('Smart Drill!') returns 'smart-drill-'. It should return 'smart-drill', with no leading or trailing hyphen."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t7_slugify.py"
+  hidden_test: fixture_hidden/test_t7_slugify.py
+  expected_scope: 1
+  held_out: true
+
+- id: t8_report_count
+  prompt: "Add Cart.count() in shop/cart.py returning the total number of units in the cart, and change summary_line in shop/report.py to 'Cart: N item(s), <amount> before tax'."
+  base_commit: HEAD
+  verify_command: "python -m pytest -q _hidden/test_t8_report_count.py"
+  hidden_test: fixture_hidden/test_t8_report_count.py
+  expected_scope: 2
+  held_out: true

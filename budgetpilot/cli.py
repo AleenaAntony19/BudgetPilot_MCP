@@ -2160,6 +2160,27 @@ def create_parser() -> argparse.ArgumentParser:
     dashboard_parser.add_argument("--no-open", action="store_true", help="Do not open a browser")
     dashboard_parser.add_argument("--stop", action="store_true", help="Stop the running dashboard")
 
+    ab_parser = subparsers.add_parser("ab", help="Paired A/B test on real Claude Code sessions (observe vs enforce)")
+    ab_sub = ab_parser.add_subparsers(dest="ab_command")
+    for name, text in (("smoke", "3 tasks x 2 arms x 2 repeats: a first number quickly"),
+                       ("run", "All tasks (or --task ...) with --repeats")):
+        sub_parser = ab_sub.add_parser(name, help=text)
+        sub_parser.add_argument("--model", default="haiku",
+                                help="Model for both arms (default: haiku, to conserve plan usage)")
+        sub_parser.add_argument("--repeats", type=int, default=None, help="Repeats per task and arm (default: 2)")
+        sub_parser.add_argument("--task", action="append", default=None, help="Task id (repeatable)")
+        sub_parser.add_argument("--arms", default=None, help="Comma-separated arms (default: observe,enforce)")
+        sub_parser.add_argument("--tasks", default=None, help="Task file (default: bench/ab_tasks.yaml)")
+        sub_parser.add_argument("--fixture", default=None, help="Fixture repository (default: bench/fixture_repo)")
+        sub_parser.add_argument("--out", default=None, help="Directory for the JSON result (default: bench_results)")
+        sub_parser.add_argument("--results-md", default=None, help="Markdown report path (default: docs/RESULTS.md)")
+        sub_parser.add_argument("--seed", type=int, default=0, help="Seed for the run order")
+        sub_parser.add_argument("--timeout", type=int, default=600, help="Seconds per session")
+        sub_parser.add_argument("--yes", "-y", action="store_true", help="Do not ask for confirmation")
+    ab_report = ab_sub.add_parser("report", help="Rebuild the Markdown report from a saved JSON result")
+    ab_report.add_argument("json", help="bench_results/ab_<timestamp>.json")
+    ab_report.add_argument("--results-md", default=None, help="Markdown report path (default: docs/RESULTS.md)")
+
     check_parser = subparsers.add_parser("transcript-check",
                                          help="Show which usage fields a Claude Code transcript contains")
     check_parser.add_argument("path", nargs="?", default=None, help="Transcript .jsonl (default: the newest one)")
@@ -2504,6 +2525,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.command == "dashboard":
         from budgetpilot import cc_cli
         return cc_cli.run_dashboard(port=args.port, open_browser=not args.no_open, stop=args.stop)
+
+    elif args.command == "ab":
+        from budgetpilot.bench import ab
+        if args.ab_command == "report":
+            return ab.main_ab("report", report_json=args.json, results_md=args.results_md)
+        if args.ab_command not in ("smoke", "run"):
+            print("usage: bp ab smoke | run | report")
+            return 1
+        return ab.main_ab(
+            args.ab_command, tasks_path=args.tasks, fixture=args.fixture, repeats=args.repeats, model=args.model,
+            task_ids=args.task, arms=args.arms.split(",") if args.arms else None, out_dir=args.out,
+            results_md=args.results_md, seed=args.seed, timeout=args.timeout, yes=args.yes,
+        )
 
     elif args.command == "transcript-check":
         from budgetpilot import cc_cli
