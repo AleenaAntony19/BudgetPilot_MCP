@@ -377,10 +377,13 @@ def ab_policy(result: Dict[str, Any]) -> Dict[str, Any]:
     from budgetpilot.hosts.base import BillingContext
     from budgetpilot.hosts.policy import report_policy
 
+    from budgetpilot.core.canary import compare_runs
+
     b = result.get("billing") or {}
     billing = BillingContext(b.get("mode", "unknown"), b.get("provider", "unknown"), b.get("confidence", "low"),
                              tuple(b.get("evidence") or ()), b.get("source", "detected"))
-    return report_policy(billing, get_adapter("claude_code").capabilities())
+    return report_policy(billing, get_adapter("claude_code").capabilities(),
+                         reconciled=compare_runs(result.get("runs") or [])["reconciled"])
 
 
 def run_billing(mode: str = "observe") -> Dict[str, Any]:
@@ -393,6 +396,18 @@ def run_billing(mode: str = "observe") -> Dict[str, Any]:
         b = detect_claude_code(child_env(mode, Path(tmp)))
     return {"mode": b.mode, "provider": b.provider, "confidence": b.confidence, "evidence": list(b.evidence),
             "source": b.source}
+
+
+def _dollar_check_line(result: Dict[str, Any]) -> str:
+    from budgetpilot.core.canary import TOLERANCE, compare_runs
+
+    check = compare_runs(result.get("runs") or [])
+    if not check["runs"]:
+        return "- Price check: no run reported a cost to compare with."
+    verdict = "within" if check["reconciled"] else "OUTSIDE"
+    return (f"- Price check: BudgetPilot's API-equivalent cost against Claude Code's own `total_cost_usd`: largest "
+            f"difference {100 * check['max_diff_pct']:.2f}% over {check['runs']} runs ({verdict} the "
+            f"{100 * TOLERANCE:.0f}% tolerance).")
 
 
 def render_results(result: Dict[str, Any]) -> str:
@@ -487,6 +502,8 @@ def render_results(result: Dict[str, Any]) -> str:
         f"{_n(a['equal_status_mean_saving_units'])} units"
         + (f" (95% CI {a['equal_status_ci_units'][0]:,} to {a['equal_status_ci_units'][1]:,})."
            if a["equal_status_ci_units"] else "."),
+        "",
+        _dollar_check_line(result),
         "",
         "## Caveats",
         "",

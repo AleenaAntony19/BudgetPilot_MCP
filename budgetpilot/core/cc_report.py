@@ -13,6 +13,7 @@ import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
+from budgetpilot.core.cc_ledger import session_totals
 from budgetpilot.hosts import get_adapter
 from budgetpilot.hosts.billing import from_row
 from budgetpilot.hosts.policy import money, report_policy
@@ -33,7 +34,7 @@ def build(conn: sqlite3.Connection, session_id: Optional[str] = None, limit: int
         "SELECT t.session_id, COALESCE(t.host, 'claude_code') AS host, MIN(t.ts) AS first_ts, MAX(t.ts) AS last_ts, "
         "COUNT(*) AS turns, SUM(t.input_tokens) AS input_tokens, "
         "SUM(t.cache_write_5m + t.cache_write_1h) AS cache_write, SUM(t.cache_read) AS cache_read, "
-        "SUM(t.output_tokens) AS output_tokens, SUM(t.billing_units) AS billing_units, SUM(t.ref_usd) AS ref_usd, "
+        "SUM(t.output_tokens) AS output_tokens, 0 AS billing_units, 0 AS ref_usd, "
         "s.billing_mode, s.billing_provider, s.billing_confidence, s.billing_evidence, s.billing_source, "
         "s.billing_mixed "
         f"FROM cc_turns t LEFT JOIN cc_sessions s ON s.session_id = t.session_id {where} "
@@ -46,6 +47,8 @@ def build(conn: sqlite3.Connection, session_id: Optional[str] = None, limit: int
         r = dict(zip(("session_id", "host", "first_ts", "last_ts", "turns", "input_tokens", "cache_write",
                       "cache_read", "output_tokens", "billing_units", "ref_usd", "billing_mode", "billing_provider",
                       "billing_confidence", "billing_evidence", "billing_source", "billing_mixed"), row))
+        priced = session_totals(conn, session_id=r["session_id"])  # priced from the price book now
+        r["billing_units"], r["ref_usd"] = priced["billing_units"], priced["ref_usd"]
         billing = from_row(r)
         policy = report_policy(billing, get_adapter(r["host"] if r["host"] in ("claude_code", "generic_mcp")
                                                     else "claude_code").capabilities(),

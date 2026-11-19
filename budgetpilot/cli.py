@@ -2174,6 +2174,31 @@ def create_parser() -> argparse.ArgumentParser:
                                 help="How you pay for Claude Code (asked once if omitted and interactive)")
     subparsers.add_parser("uninstall", help="Remove exactly what `bp install` added")
 
+    prices_parser = subparsers.add_parser("prices", help="Show, refresh or set the model price book")
+    prices_sub = prices_parser.add_subparsers(dest="prices_command")
+    show_p = prices_sub.add_parser("show", help="List the rates in use (default)")
+    show_p.add_argument("--json", action="store_true")
+    refresh_p = prices_sub.add_parser("refresh", help="Fetch the official pricing page, validate, and update")
+    refresh_p.add_argument("--provider", default="anthropic", help="Provider to refresh (default: anthropic)")
+    refresh_p.add_argument("--confirm", action="store_true", help="Accept rate changes larger than 50%%")
+    refresh_p.add_argument("--json", action="store_true")
+    set_p = prices_sub.add_parser("set", help="Set a model's rates yourself (per million tokens)")
+    set_p.add_argument("provider")
+    set_p.add_argument("model")
+    for flag in ("input", "cache-write-5m", "cache-write-1h", "cache-read", "output"):
+        set_p.add_argument(f"--{flag}", type=float, required=True)
+    set_p.add_argument("--source", default="", help="Where these rates come from (URL or note)")
+
+    reconcile_parser = subparsers.add_parser("reconcile", help="Compare an exported usage file with the ledger")
+    reconcile_parser.add_argument("--console", required=True, help="Usage export (CSV or JSON)")
+    reconcile_parser.add_argument("--model-col", default=None)
+    reconcile_parser.add_argument("--cost-col", default=None)
+    reconcile_parser.add_argument("--date-col", default=None)
+    reconcile_parser.add_argument("--json", action="store_true")
+
+    subparsers.add_parser("statusline", help="Claude Code status line command (records Claude Code's own cost "
+                                             "for the price drift check)")
+
     mode_parser = subparsers.add_parser("mode", help="Turn BudgetPilot on, off, or to measure-only (all projects)")
     mode_parser.add_argument("mode", choices=["on", "off", "observe"])
 
@@ -2540,6 +2565,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cc_cli.run_install(scope=args.scope, repo=args.repo, hooks=args.hooks, mcp=args.mcp,
                                   claude_md=args.claude_md, yes=args.yes, billing=args.billing)
 
+    elif args.command == "prices":
+        from budgetpilot import cc_cli
+        action = args.prices_command or "show"
+        rates = None
+        if action == "set":
+            rates = {"input": args.input, "cache_write_5m": args.cache_write_5m,
+                     "cache_write_1h": args.cache_write_1h, "cache_read": args.cache_read, "output": args.output}
+        return cc_cli.run_prices(action, confirm=getattr(args, "confirm", False), as_json=getattr(args, "json", False),
+                                 provider=getattr(args, "provider", "anthropic"), model=getattr(args, "model", None),
+                                 rates=rates, source_url=getattr(args, "source", ""))
+    elif args.command == "reconcile":
+        from budgetpilot import cc_cli
+        return cc_cli.run_reconcile(args.console, args.model_col, args.cost_col, args.date_col, args.json)
+    elif args.command == "statusline":
+        from budgetpilot import cc_cli
+        return cc_cli.run_statusline()
     elif args.command == "uninstall":
         from budgetpilot import cc_cli
         return cc_cli.run_uninstall()

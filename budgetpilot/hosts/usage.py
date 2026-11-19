@@ -16,10 +16,9 @@ and some report reasoning tokens on top of the output count. The event's
 `semantics` flags say which, and `canonical_tokens` removes the overlap. Every
 total and billing unit is computed from the canonical classes.
 
-Billing units and API-equivalent dollars are only computed where a cited price
-exists (Anthropic models today, `core/cc_ledger.py`). Other providers are
-stored with NULL billing units until the price book (Phase C) can price them:
-a guess would be worse than a gap.
+Tokens are the source of truth. Billing units and dollars come from the
+price book (core/pricebook.py); reports recompute them from tokens, and a model
+without a cited price stays unpriced instead of being guessed.
 
 Standard library only.
 """
@@ -52,12 +51,10 @@ def canonical_tokens(event) -> dict:
 
 
 def priced(event, tokens: dict, prices=None) -> tuple:
-    """(billing units or None, API-equivalent USD or None, price guessed)."""
-    if event.provider != "anthropic":
-        return None, None, False
+    """(billing units or None, API-equivalent USD or None, unpriced) from the price book at the event's time."""
     from budgetpilot.core.cc_ledger import price_tokens
 
-    return price_tokens(event.model, tokens, prices)
+    return price_tokens(event.model, tokens, ts=event.ts, provider=event.provider or "unknown")
 
 
 _UPSERT = (
@@ -77,7 +74,7 @@ _UPSERT = (
 
 def ledger_row(event, prices=None) -> tuple:
     tokens = canonical_tokens(event)
-    units, usd, guessed = priced(event, tokens, prices)
+    units, usd, guessed = priced(event, tokens, prices)  # cache of the price at ingest; reports re-price from tokens
     extra = event.extra if isinstance(event.extra, dict) else {}
     context = tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"] + tokens["cache_read"]
     return (

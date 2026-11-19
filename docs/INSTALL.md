@@ -114,6 +114,7 @@ The model can call `bp_recovery_choose` and `bp_request_scope` itself. Keep them
 | `billing.intended_mode` | | `subscription`, `api` or `cloud`: how you pay. Asked once by `bp install` (or `bp install --billing ...`). With `subscription`, a session that has `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set gets a one-time warning, a dashboard banner and a failed `bp doctor` check |
 | `billing.mode_override` | | Force the detected billing mode (`subscription`, `api`, `cloud`, `unknown`); shown as "set by you" |
 | `billing.provider_override` | | Force the provider (`anthropic`, `bedrock`, `vertex`, `azure`, ...) |
+| `prices.auto_refresh` | | `true`: `bp doctor` and `bp dashboard` refresh the price book when it is older than 30 days (default off) |
 
 Example:
 
@@ -122,11 +123,30 @@ Example:
  "scope_limits": {"1": {"read_window_lines": 300}}}
 ```
 
-Model prices for the API-equivalent figures are built in. Override them in `~/.budgetpilot/prices.json`:
+## Prices
+
+API-equivalent figures come from a price book: per-model rates with their source page and date. A snapshot of Anthropic's [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) ships with BudgetPilot; refreshed copies and rates you set go to `~/.budgetpilot/pricebook.json` (the previous copy is kept as `.bak`).
+
+| Command | Effect |
+|---|---|
+| `bp prices` | The rates in use, their source and date; "STALE" after 30 days |
+| `bp prices refresh` | Fetch the pricing page, check it, and update. A rate change applies from today, so older usage keeps its old price. A page that no longer parses, rates in the wrong order, or a rate moving more than 50% (without `--confirm`) leaves the file unchanged; so does a network failure |
+| `bp prices set PROVIDER MODEL --input X --cache-write-5m X --cache-write-1h X --cache-read X --output X` | Set rates yourself (per million tokens), for a model or provider the book does not list |
+| `bp reconcile --console FILE` | Compare an exported usage file (CSV or JSON with model, cost and date columns) with the ledger, per model |
+
+A model that is not in the book is shown as unpriced: tokens are counted, but it gets no billing units or dollars. BudgetPilot never prices it as a similar model. Only Anthropic's page can be refreshed automatically; other providers need `bp prices set`.
+
+The older `claude_models` block in `~/.budgetpilot/prices.json` is still honoured, for exact model IDs.
+
+### Price drift check (optional status line)
+
+Claude Code computes its own session cost at list price. To compare BudgetPilot's figure with it continuously, use BudgetPilot as your status line in `~/.claude/settings.json` (this replaces any status line you have):
 
 ```json
-{"claude_models": {"claude-sonnet-5-5": {"input_per_million": 2.0, "cache_read_multiplier": 0.05}}}
+{"statusLine": {"type": "command", "command": "/path/to/.venv/bin/python -m budgetpilot.cli statusline"}}
 ```
+
+It shows the mode, model and context use, and records both costs. If they differ by more than 2% in the last three updates, the dashboard says "price table may be stale" and no figure is labelled "reconciled". `bp ab` makes the same comparison against `claude -p` for every test run. Subagents, web search fees, US-only inference and fast mode are not priced by BudgetPilot and can also cause a difference.
 
 ## Billing and dollar figures
 

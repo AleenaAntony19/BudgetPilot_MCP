@@ -457,7 +457,6 @@ def _migration_6_billing(conn: sqlite3.Connection) -> None:
         ("billing_mode", "TEXT"), ("billing_provider", "TEXT"), ("billing_confidence", "TEXT"),
         ("billing_evidence", "TEXT"), ("billing_source", "TEXT"), ("billing_mode_end", "TEXT"),
         ("billing_mixed", "INTEGER DEFAULT 0"),
-        # Last: hookdb.SCHEMA_PROBE checks this column to know the schema is current.
         ("billing_warned", "INTEGER DEFAULT 0"),
     ):
         _add_column(conn, "cc_sessions", column, decl)
@@ -465,6 +464,23 @@ def _migration_6_billing(conn: sqlite3.Connection) -> None:
 
 MIGRATIONS.append((6, "Billing context per session: mode, provider, confidence, evidence, mixed flag",
                    _migration_6_billing))
+
+
+def _migration_7_host_costs(conn: sqlite3.Connection) -> None:
+    """
+    Drift check: the session cost the host reports itself (Claude Code's
+    status line `cost.total_cost_usd`, or `total_cost_usd` from `claude -p`)
+    next to BudgetPilot's own figure for the same moment. One row per session;
+    `recent_diffs` keeps the last three relative differences.
+    """
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS host_costs (session_id TEXT PRIMARY KEY, ts REAL, source TEXT, host_usd REAL, "
+        "computed_usd REAL, diff_pct REAL, recent_diffs TEXT, turns INTEGER, unpriced INTEGER DEFAULT 0);"
+    )
+
+
+MIGRATIONS.append((7, "Drift check: host-reported session cost next to BudgetPilot's computed cost",
+                   _migration_7_host_costs))
 
 LATEST_SCHEMA_VERSION: int = max(v for v, _, _ in MIGRATIONS)
 

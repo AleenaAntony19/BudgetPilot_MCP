@@ -78,6 +78,20 @@ _TOKEN_SUMS = (
 )
 
 
+def _ledger_totals(conn, **where):
+    """Token totals priced from the price book now (the ledger stores tokens only), in the page's key names."""
+    from budgetpilot.core import cc_ledger
+
+    try:
+        t = cc_ledger.session_totals(conn, **where) if conn is not None else cc_ledger.totals([])
+    except sqlite3.Error:
+        t = cc_ledger.totals([])
+    return {"turns": t["turns"], "input": t["input_tokens"], "cache_write": t["cache_write"],
+            "cache_read": t["cache_read"], "output": t["output_tokens"], "thinking": t["thinking_tokens"],
+            "billing_units": round(t["billing_units"], 1), "ref_usd": t["ref_usd"],
+            "price_guess": int(bool(t["price_guess"])), "cache_hit_ratio": t["cache_hit_ratio"]}
+
+
 def _with_ratio(totals):
     denominator = (totals.get("input") or 0) + (totals.get("cache_write") or 0) + (totals.get("cache_read") or 0)
     totals["cache_hit_ratio"] = round((totals.get("cache_read") or 0) / denominator, 4) if denominator else None
@@ -133,8 +147,15 @@ def billing_view(conn, session_id):
     from budgetpilot.hosts.billing import KEY_VARS, intended_mode
     from budgetpilot.hosts.policy import report_policy
 
+    from budgetpilot.core import canary, pricebook
+
     billing, mixed = _session_billing(conn, session_id)
-    policy = report_policy(billing, get_adapter("claude_code").capabilities(), mixed=mixed)
+    drift = canary.status(conn, session_id) if conn is not None else None
+    policy = report_policy(billing, get_adapter("claude_code").capabilities(), mixed=mixed,
+                           reconciled=bool(drift and drift["reconciled"]))
+    book = pricebook.load()
+    prices = {"fetched_at": book.get("fetched_at"), "age_days": pricebook.age_days(book),
+              "stale": pricebook.is_stale(book)}
     keys = [n for n in KEY_VARS if f"env:{n} present" in billing.evidence]
     banner = None
     if keys and intended_mode(state.read_config()) == "subscription":
@@ -142,7 +163,8 @@ def billing_view(conn, session_id):
     return {"billing": {"mode": billing.mode, "provider": billing.provider, "confidence": billing.confidence,
                         "set_by_user": billing.source == "user_override", "evidence": list(billing.evidence),
                         "mixed": mixed},
-            "policy": policy, "banner": banner}
+            "policy": policy, "banner": banner, "prices": prices,
+            "drift": None if not drift else {k: drift[k] for k in ("reconciled", "drift", "closest_diff_pct", "message")}}
 
 
 # Sessions whose turns may be counted in dollar totals: billed per token, billing unchanged.
@@ -183,8 +205,10 @@ def api_summary(conn):
     view = billing_view(conn, session)
     policy = view["policy"]
     # Dollars over 24 hours count only sessions billed per token whose billing did not change.
-    dollars_24h = one(conn, f"SELECT COALESCE(SUM(ref_usd),0) AS usd, COUNT(DISTINCT session_id) AS n FROM cc_turns "
-                            f"WHERE ts >= ? AND session_id IN ({_DOLLAR_SESSIONS})", (day_ago_iso,))
+    dollar_ids = [r["session_id"] for r in rows(conn, f"SELECT DISTINCT session_id FROM cc_turns WHERE ts >= ? "
+                                                       f"AND session_id IN ({_DOLLAR_SESSIONS})", (day_ago_iso,))]
+    dollars_24h = {"n": len(dollar_ids),
+                   "usd": _ledger_totals(conn, since_ts=day_ago_iso, session_ids=dollar_ids)["ref_usd"]}
     policy_24h = report_policy(BillingContext("api" if dollars_24h.get("n") else "unknown"))
     return {
         **view,
@@ -193,10 +217,9 @@ def api_summary(conn):
         "hooks_last_seen": (connections.get("hooks") or {}).get("last_seen"),
         "mcp_last_seen": (connections.get("mcp") or {}).get("last_seen"),
         "host": host, "session_id": session,
-        "tokens_session": _apply_policy(_with_ratio(one(conn, f"SELECT {_TOKEN_SUMS} FROM cc_turns WHERE session_id=?",
-                                                         (session,))), policy),
-        "tokens_24h": _apply_policy(_with_ratio(one(conn, f"SELECT {_TOKEN_SUMS} FROM cc_turns WHERE ts >= ?",
-                                                     (day_ago_iso,))), policy_24h, dollars_24h.get("usd")),
+        "tokens_session": _apply_policy(_ledger_totals(conn, session_id=session) if session
+                                        else _ledger_totals(conn, session_ids=[]), policy),
+        "tokens_24h": _apply_policy(_ledger_totals(conn, since_ts=day_ago_iso), policy_24h, dollars_24h.get("usd")),
         "dollar_sessions_24h": int(dollars_24h.get("n") or 0),
         "cache_ratio_series": series,
         "cache_drops": [i for i in range(1, len(series)) if series[i - 1] - series[i] > 0.20],
@@ -336,6 +359,7 @@ async function refresh(){try{
  <div><span class="k">hooks</span> <span class="v">${ago(s.hooks_last_seen)}</span></div><div><span class="k">MCP</span> <span class="v">${ago(s.mcp_last_seen)}</span></div>
  <div><span class="k">host</span> <span class="v">${esc(s.host||"–")}</span> <span class="k">(${esc(s.policy.tier)})</span></div>
  <div><span class="k">billing</span> <span class="v">${esc(s.billing.mode)}</span> <span class="k">${esc(s.billing.confidence)} confidence${s.billing.set_by_user?", set by you":""}${s.billing.mixed?", mixed":""} · ${esc(s.billing.provider)}</span></div>
+ <div><span class="k">prices</span> <span class="v">${esc((s.prices.fetched_at||"never").slice(0,10))}</span>${s.prices.stale?' <span class="bad">stale</span>':""}${s.drift&&s.drift.message?' <span class="warn">'+esc(s.drift.message)+'</span>':""}</div>
  <div><span class="k">version</span> <span class="v">${esc(s.version)}</span></div>`;
  const b=$("banner");b.hidden=!s.banner;b.textContent=s.banner||"";
  P=s.policy;

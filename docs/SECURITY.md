@@ -7,7 +7,7 @@ BudgetPilot runs inside your Claude Code sessions as hooks. This page says what 
 | Property | How | Test |
 |---|---|---|
 | Hooks fail open | Any exception, malformed input, missing or locked database gives exit code 0 and no output, so Claude Code proceeds normally | `test_malformed_input_fails_open`, `test_locked_database_fails_open_and_queues_writes`, `test_property_any_payload_exits_zero_with_empty_or_valid_output` |
-| No network, no model calls, no API keys | The hook, the MCP server and the dashboard use only the standard library, SQLite and local files | `test_hook_process_imports_no_heavy_modules`, `test_page_has_no_external_urls_and_all_panels` |
+| No network, no model calls, no API keys | The hook, the MCP server and the dashboard use only the standard library, SQLite and local files. The only network access is `bp prices refresh` (and `prices.auto_refresh`, off by default), which downloads Anthropic's public pricing pages from the command line | `test_hook_process_imports_no_heavy_modules`, `test_page_has_no_external_urls_and_all_panels` |
 | Never auto-approves a write or a command | `permissionDecision: "allow"` is returned only for `Read` and `Grep` | `test_edits_are_never_auto_approved`, the property test |
 | Never auto-approves outside the project or on secrets | Paths are resolved (symlinks followed) and must stay inside the working directory; `.env`, key files, `.ssh/`, `.aws/`, `credentials*` and similar get no opinion | `test_paths_outside_repo_and_secrets_are_never_auto_approved` |
 | Does not change files on its own | The only file-changing action is the **Estimate** recovery step, which restores the copies saved before the task's first edit of each file. It runs only after the human chose it, refuses paths outside the repository or inside `.git`, and deletes only files git reports as untracked | `test_estimate_restores_the_pre_task_snapshot_only_when_chosen` |
@@ -27,6 +27,8 @@ Everything stays on your machine, under `~/.budgetpilot` (or `$BP_HOME`):
 | `snapshots/<task>/` | Copies of files as they were before a task first edited them; removed after a day |
 | `captures/` | Raw hook payloads, only while `bp capture on` is active. Payloads include prompts, file contents and command output |
 | `hook_errors.log`, `outbox.jsonl` | Internal errors, and log rows waiting for a locked database |
+| `pricebook.json`, `pricebook.json.bak` | Model rates from `bp prices refresh` or `bp prices set` |
+| `host_costs` in `bp.db` | Per session: the cost Claude Code reported and BudgetPilot's own figure (drift check) |
 | `claude_auth.json` | From `claude auth status`: login method, API provider and plan name only. Email, organisation and login expiry are dropped before writing |
 | `cc_sessions.billing_*` in `bp.db` | Detected billing mode, provider, confidence and evidence. Evidence names variables and settings (`env:ANTHROPIC_API_KEY present`); it never contains a key, token or URL |
 

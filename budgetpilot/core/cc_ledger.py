@@ -7,13 +7,21 @@ per `message.id` (a message is written several times, once per content block)
 and stores them in `cc_turns`. On Claude Code 2.1.325 the de-duplicated totals
 matched `claude -p --output-format json` exactly (see docs/HOOK_CONTRACT.md).
 
-Two derived numbers:
-- billing_units: input-token equivalents,
-      input + 1.25*cache_write_5m + 2*cache_write_1h + r*cache_read + 5*output
-  where r is the model's cache-read multiplier. Comparable across runs of the
-  same model.
-- ref_usd: billing_units * input price / 1e6. API-equivalent only: a Pro or
-  Max plan is not billed per token.
+Token counts are the ledger's source of truth. Two numbers are derived from
+the price book (core/pricebook.py) at each message's time; reports always
+recompute them from the tokens (`session_totals`, `priced_rows`), so any
+session is re-priced when the book changes. The `billing_units` and `ref_usd`
+columns hold the price at ingest only as a cache for older readers:
+- billing_units: input-token equivalents, each class weighted by its rate
+  divided by the model's input rate (for current Claude models:
+      input + 1.25*cache_write_5m + 2*cache_write_1h + r*cache_read + 5*output).
+  Comparable across runs of the same model.
+- ref_usd: API-equivalent dollars at list price. A Pro or Max plan is not
+  billed per token; hosts/policy.py decides whether dollars are shown.
+A model the book does not list is unpriced (no units, no dollars), never guessed.
+
+`DEFAULT_MODEL_PRICES`, `price_for` and `billing_units` below are the 1.0
+prefix table, kept for callers of that interface; the ledger no longer uses them.
 
 The ledger is diagnostic. Savings are only ever claimed from the paired A/B
 test (`bp ab`).
@@ -128,7 +136,7 @@ def _turn_from_row(row: Dict[str, Any], task_id: Optional[str],
     if row.get("type") != "assistant" or not isinstance(usage, dict) or not message.get("id"):
         return None
     tokens = parse_usage(usage)
-    units, ref_usd, guessed = price_tokens(message.get("model"), tokens, prices)
+    units, ref_usd, unpriced = price_tokens(message.get("model"), tokens, ts=row.get("timestamp"))
     tools = [
         block.get("name") for block in (message.get("content") or [])
         if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name")
@@ -140,20 +148,25 @@ def _turn_from_row(row: Dict[str, Any], task_id: Optional[str],
         "context_tokens": tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"]
         + tokens["cache_read"],
         "tools_called": tools, "billing_units": units, "ref_usd": ref_usd,
-        "price_guess": int(guessed),
+        "price_guess": int(unpriced),
     }
 
 
-def price_tokens(model: Optional[str], tokens: Dict[str, int],
-                 prices: Optional[List[Tuple[str, float, float]]] = None) -> Tuple[float, float, bool]:
-    """(billing units, API-equivalent USD, price guessed) for one Anthropic message's token classes."""
-    input_price, read_mult, guessed = price_for(model, prices)
-    prompt_tokens = tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"] + tokens["cache_read"]
-    for prefix, (threshold, factor) in LONG_PROMPT_RULES.items():
-        if str(model or "").startswith(prefix) and prompt_tokens > threshold:
-            input_price *= factor
-    units = billing_units(tokens, read_mult)
-    return units, units * input_price / 1e6, guessed
+def price_tokens(model: Optional[str], tokens: Dict[str, int], prices: Any = None, ts: Any = None,
+                 provider: str = "anthropic") -> Tuple[Optional[float], Optional[float], bool]:
+    """
+    (billing units, API-equivalent USD, unpriced) for one message's disjoint
+    token classes, from the price book (core/pricebook.py) at the message's
+    time. An unknown model is unpriced: (None, None, True), never a guess.
+    `prices` is ignored (kept for callers of the 1.0 signature).
+    """
+    from budgetpilot.core import pricebook
+
+    price = pricebook.price_for(provider, model, ts)
+    if not price:
+        return None, None, True
+    units, usd = pricebook.units_and_usd(price, tokens)
+    return units, usd, False
 
 
 def read_turns(path: str, offset: int = 0, prompt_id: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int, Optional[str]]:
@@ -236,6 +249,7 @@ def ingest(conn: sqlite3.Connection, session_id: str, path: str) -> int:
             conn.execute(_UPSERT, (
                 t["message_id"], session_id, t["task_id"], t["ts"], t["model"], t["effort"], t["input_tokens"],
                 t["cache_write_5m"], t["cache_write_1h"], t["cache_read"], t["output_tokens"], t["thinking_tokens"],
+                # billing_units / ref_usd are a cache of the price at ingest; every report re-prices from tokens.
                 t["context_tokens"], json.dumps(t["tools_called"]), t["billing_units"], t["ref_usd"], t["price_guess"],
             ))
         conn.execute(
@@ -327,20 +341,37 @@ def check_transcript(path: str) -> Dict[str, Any]:
 
 
 def session_totals(conn: sqlite3.Connection, session_id: Optional[str] = None,
-                   since_ts: Optional[str] = None, task_id: Optional[str] = None) -> Dict[str, Any]:
+                   since_ts: Optional[str] = None, task_id: Optional[str] = None,
+                   session_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Token totals with billing units and dollars priced now from the price book (the ledger stores tokens only)."""
     where, params = [], []
     for column, value, op in (("session_id", session_id, "="), ("ts", since_ts, ">="), ("task_id", task_id, "=")):
         if value:
             where.append(f"{column} {op} ?")
             params.append(value)
     clause = f"WHERE {' AND '.join(where)}" if where else ""
+    if session_ids is not None:
+        marks = ",".join("?" * len(session_ids)) or "NULL"
+        clause = (clause + " AND " if clause else "WHERE ") + f"session_id IN ({marks})"
+        params = list(params) + list(session_ids)
     rows = conn.execute(
         f"SELECT input_tokens, cache_write_5m, cache_write_1h, cache_read, output_tokens, thinking_tokens, "
-        f"billing_units, ref_usd, price_guess, model FROM cc_turns {clause}", params,
+        f"model, ts, COALESCE(provider, 'anthropic') FROM cc_turns {clause}", params,
     ).fetchall()
+    return totals(priced_rows(rows))
+
+
+def priced_rows(rows) -> Iterable[Dict[str, Any]]:
+    """Ledger rows (tokens, model, ts, provider) with billing units and dollars computed from the price book now."""
     keys = ("input_tokens", "cache_write_5m", "cache_write_1h", "cache_read", "output_tokens", "thinking_tokens",
-            "billing_units", "ref_usd", "price_guess", "model")
-    return totals(dict(zip(keys, row)) for row in rows)
+            "model", "ts", "provider")
+    for row in rows:
+        t = dict(zip(keys, row))
+        for k in keys[:6]:
+            t[k] = int(t[k] or 0)
+        units, usd, unpriced = price_tokens(t["model"], t, ts=t["ts"], provider=t["provider"])
+        t.update(billing_units=units, ref_usd=usd, price_guess=int(unpriced))
+        yield t
 
 
 def cache_series(conn: sqlite3.Connection, session_id: str, limit: int = 60) -> Dict[str, Any]:

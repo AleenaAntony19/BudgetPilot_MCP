@@ -1,0 +1,382 @@
+{
+ "schema": 1,
+ "fetched_at": "2026-11-19T18:23:00Z",
+ "content_hash": "sha256:599714117eb993188ada4c3606a24e7bd36c7acf70523ebdbd3eb93e8dcc6109",
+ "entries": [
+  {
+   "provider": "anthropic",
+   "model_id": "claude-fable-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 10.0,
+    "cache_write_5m": 12.5,
+    "cache_write_1h": 20.0,
+    "cache_read": 1.0,
+    "output": 50.0
+   },
+   "name": "Claude Fable 5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-fable-5-1",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 10.0,
+    "cache_write_5m": 12.5,
+    "cache_write_1h": 20.0,
+    "cache_read": 0.25,
+    "output": 50.0
+   },
+   "name": "Claude Fable 5.1"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-fable-5-2",
+   "aliases": [
+    "global.anthropic.claude-fable-5-2"
+   ],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 8.0,
+    "cache_write_5m": 10.0,
+    "cache_write_1h": 16.0,
+    "cache_read": 0.2,
+    "output": 40.0
+   },
+   "name": "Claude Fable 5.2"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-haiku-4-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 1.0,
+    "cache_write_5m": 1.25,
+    "cache_write_1h": 2.0,
+    "cache_read": 0.1,
+    "output": 5.0
+   },
+   "name": "Claude Haiku 4.5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-haiku-5-5",
+   "aliases": [
+    "anthropic.claude-haiku-5-5"
+   ],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 0.1,
+    "cache_write_5m": 0.125,
+    "cache_write_1h": 0.2,
+    "cache_read": 0.01,
+    "output": 0.5
+   },
+   "name": "Claude Haiku 5.5",
+   "long_context": {
+    "threshold_tokens": 100000,
+    "rates": {
+     "input": 0.5,
+     "cache_write_5m": 0.625,
+     "cache_write_1h": 1.0,
+     "cache_read": 0.05,
+     "output": 2.5
+    }
+   }
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-mythos-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 10.0,
+    "cache_write_5m": 12.5,
+    "cache_write_1h": 20.0,
+    "cache_read": 1.0,
+    "output": 50.0
+   },
+   "name": "Claude Mythos 5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-mythos-5-1",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 10.0,
+    "cache_write_5m": 12.5,
+    "cache_write_1h": 20.0,
+    "cache_read": 0.25,
+    "output": 50.0
+   },
+   "name": "Claude Mythos 5.1"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-mythos-5-2",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 8.0,
+    "cache_write_5m": 10.0,
+    "cache_write_1h": 16.0,
+    "cache_read": 0.2,
+    "output": 40.0
+   },
+   "name": "Claude Mythos 5.2"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-4",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 15.0,
+    "cache_write_5m": 18.75,
+    "cache_write_1h": 30.0,
+    "cache_read": 1.5,
+    "output": 75.0
+   },
+   "name": "Claude Opus 4"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-4-1",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 15.0,
+    "cache_write_5m": 18.75,
+    "cache_write_1h": 30.0,
+    "cache_read": 1.5,
+    "output": 75.0
+   },
+   "name": "Claude Opus 4.1"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-4-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 5.0,
+    "cache_write_5m": 6.25,
+    "cache_write_1h": 10.0,
+    "cache_read": 0.5,
+    "output": 25.0
+   },
+   "name": "Claude Opus 4.5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-4-6",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 5.0,
+    "cache_write_5m": 6.25,
+    "cache_write_1h": 10.0,
+    "cache_read": 0.5,
+    "output": 25.0
+   },
+   "name": "Claude Opus 4.6"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-4-7",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 5.0,
+    "cache_write_5m": 6.25,
+    "cache_write_1h": 10.0,
+    "cache_read": 0.5,
+    "output": 25.0
+   },
+   "name": "Claude Opus 4.7"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-4-8",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 5.0,
+    "cache_write_5m": 6.25,
+    "cache_write_1h": 10.0,
+    "cache_read": 0.5,
+    "output": 25.0
+   },
+   "name": "Claude Opus 4.8"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 5.0,
+    "cache_write_5m": 6.25,
+    "cache_write_1h": 10.0,
+    "cache_read": 0.5,
+    "output": 25.0
+   },
+   "name": "Claude Opus 5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-opus-5-5",
+   "aliases": [
+    "anthropic.claude-opus-5-5"
+   ],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 4.0,
+    "cache_write_5m": 5.0,
+    "cache_write_1h": 8.0,
+    "cache_read": 0.2,
+    "output": 20.0
+   },
+   "name": "Claude Opus 5.5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-sonnet-4",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 3.0,
+    "cache_write_5m": 3.75,
+    "cache_write_1h": 6.0,
+    "cache_read": 0.3,
+    "output": 15.0
+   },
+   "name": "Claude Sonnet 4"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-sonnet-4-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 3.0,
+    "cache_write_5m": 3.75,
+    "cache_write_1h": 6.0,
+    "cache_read": 0.3,
+    "output": 15.0
+   },
+   "name": "Claude Sonnet 4.5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-sonnet-4-6",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 3.0,
+    "cache_write_5m": 3.75,
+    "cache_write_1h": 6.0,
+    "cache_read": 0.3,
+    "output": 15.0
+   },
+   "name": "Claude Sonnet 4.6"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-sonnet-5",
+   "aliases": [],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 2.0,
+    "cache_write_5m": 2.5,
+    "cache_write_1h": 4.0,
+    "cache_read": 0.2,
+    "output": 10.0
+   },
+   "name": "Claude Sonnet 5"
+  },
+  {
+   "provider": "anthropic",
+   "model_id": "claude-sonnet-5-5",
+   "aliases": [
+    "anthropic.claude-sonnet-5-5"
+   ],
+   "as_of": "2026-11-19",
+   "valid_from": null,
+   "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "source": "bundled",
+   "rates": {
+    "input": 2.0,
+    "cache_write_5m": 2.5,
+    "cache_write_1h": 4.0,
+    "cache_read": 0.1,
+    "output": 10.0
+   },
+   "name": "Claude Sonnet 5.5"
+  }
+ ]
+}

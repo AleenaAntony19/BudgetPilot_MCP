@@ -32,6 +32,9 @@ budgetpilot-hook = "budgetpilot.adapters.hooks:main"
 where = ["."]
 include = ["budgetpilot*"]
 
+[tool.setuptools.package-data]
+budgetpilot = ["data/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

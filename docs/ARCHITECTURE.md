@@ -43,7 +43,7 @@ flowchart TD
 | 2. Gate | `core/ccgate.py`, called from `PreToolUse` | Narrows unbounded `Read` and `Grep` calls through `updatedInput` (no extra model round-trip), and denies a few wasteful calls with a concrete alternative. |
 | 3. Output limits | `core/ccgate.py`, `adapters/hook_engine.py` | A per-task budget for context added by tools and for output, an edit-size cap, a duplicate-retry blocker, trimming of noisy Bash output, and a one-time terse-output contract. |
 | 4. Verify and recover (3E) | `core/recovery_flow.py`, called from `PostToolUseFailure` | Classifies a failed test run, fingerprints it, and asks the router which action has the best expected value. With a human present the user chooses; headless, the recommendation is applied as text. |
-| 5. Ledger | `core/cc_ledger.py`, called from `PostToolUse` and `Stop` | Reads real token usage from the session transcript, one row per API message. |
+| 5. Ledger | `core/cc_ledger.py`, called from `PostToolUse` and `Stop` | Reads real token usage from the session transcript, one row per API message. Billing units and dollars are computed from the price book (`core/pricebook.py`) whenever a report reads them, so a price change re-prices old sessions correctly. |
 
 ## Scope limits
 

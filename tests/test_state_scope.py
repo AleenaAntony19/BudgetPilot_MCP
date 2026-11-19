@@ -110,7 +110,7 @@ def _tables(conn):
 def test_fresh_database_gets_hook_tables(tmp_path):
     conn = init_db(tmp_path / "fresh.db")
     try:
-        assert get_current_schema_version(conn) == LATEST_SCHEMA_VERSION == 6
+        assert get_current_schema_version(conn) == LATEST_SCHEMA_VERSION == 7
         assert set(HOOK_TABLES) <= _tables(conn)
         assert "tasks" not in _tables(conn) and "budget_reservations" not in _tables(conn)
     finally:
@@ -138,7 +138,7 @@ def test_database_with_legacy_control_plane_schema_migrates(tmp_path, legacy_ver
 
     conn = init_db(path)
     try:
-        assert get_current_schema_version(conn) == 6
+        assert get_current_schema_version(conn) == 7
         assert set(HOOK_TABLES) <= _tables(conn)
         assert conn.execute("SELECT task_id FROM tasks").fetchone()[0] == "keep-me"  # legacy data untouched
     finally:

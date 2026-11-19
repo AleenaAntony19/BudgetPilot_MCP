@@ -28,7 +28,7 @@ ERROR_LOG_MAX_BYTES = 1_000_000
 # Reads the last object the newest migration (store.MIGRATIONS) creates, so it
 # fails on any older database and the hook runs the migrations once. One cheap
 # query per hook call. Update it together with every new migration.
-SCHEMA_PROBE = "SELECT billing_warned FROM cc_sessions LIMIT 0;"
+SCHEMA_PROBE = "SELECT unpriced FROM host_costs LIMIT 0;"
 
 
 def db_path() -> Path:

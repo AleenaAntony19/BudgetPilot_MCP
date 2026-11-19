@@ -93,14 +93,12 @@ def status_data(conn: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
             return data
         since = time.time() - 86_400
         day = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(since))
-        row = conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(input_tokens),0), COALESCE(SUM(cache_write_5m+cache_write_1h),0), "
-            "COALESCE(SUM(cache_read),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(billing_units),0) "
-            "FROM cc_turns WHERE ts >= ?", (day,),
-        ).fetchone()
+        from budgetpilot.core.cc_ledger import session_totals
+
+        t = session_totals(conn, since_ts=day)  # billing units priced from the price book now
         data["last_24h"] = {
-            "turns": row[0], "input": row[1], "cache_write": row[2], "cache_read": row[3], "output": row[4],
-            "billing_units": round(row[5]),
+            "turns": t["turns"], "input": t["input_tokens"], "cache_write": t["cache_write"],
+            "cache_read": t["cache_read"], "output": t["output_tokens"], "billing_units": round(t["billing_units"]),
         }
         latest = conn.execute(
             "SELECT billing_mode, billing_provider, billing_confidence, billing_evidence, billing_source, "

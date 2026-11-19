@@ -449,6 +449,7 @@ def run_doctor(claude: bool = False, runs: int = 10, out: Callable[[str], None] 
         report("FAIL", "mcp >= 2", str(exc), 'pip install "mcp>=2.0.0"')
 
     _doctor_billing(report)
+    _doctor_prices(report)
 
     home = state.get_bp_home()
     try:
@@ -594,6 +595,45 @@ def _doctor_billing(report: Callable[..., None]) -> None:
         report("WARN", "Claude Code login cache", "not cached yet", "run bp doctor where `claude` is available")
 
 
+def maybe_auto_refresh() -> Optional[Dict[str, Any]]:
+    """`prices.auto_refresh: true` in config.json: refresh a stale price book (CLI only, never a hook)."""
+    from budgetpilot.core import pricebook
+
+    section = state.read_config().get("prices") or {}
+    if not (isinstance(section, dict) and section.get("auto_refresh")) or not pricebook.is_stale():
+        return None
+    return pricebook.refresh()
+
+
+def _doctor_prices(report: Callable[..., None]) -> None:
+    from budgetpilot.core import pricebook
+
+    maybe_auto_refresh()
+    book = pricebook.load(force=True)
+    age = pricebook.age_days(book)
+    report("WARN" if pricebook.is_stale(book) else "PASS", "Price book",
+           f"fetched {book.get('fetched_at') or 'never'}" + (f", {age:.0f} days ago" if age is not None else "")
+           + f", {len(book['entries'])} rates", "bp prices refresh")
+    try:
+        from budgetpilot.core import hookdb
+
+        conn = hookdb.open_ready()
+        if conn is None:
+            return
+        try:
+            since = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 30 * 86400))
+            models = [r[0] for r in conn.execute(
+                "SELECT DISTINCT model FROM cc_turns WHERE ts >= ? AND model IS NOT NULL", (since,))]
+        finally:
+            conn.close()
+        unpriced = [m for m in models if not pricebook.price_for("anthropic", m, None, book)]
+        if unpriced:
+            report("WARN", "Unpriced models in the last 30 days", ", ".join(unpriced),
+                   "bp prices refresh, or bp prices set anthropic MODEL ...")
+    except Exception:
+        pass
+
+
 def run_mode(mode: str, out: Callable[[str], None] = print) -> int:
     from budgetpilot.core import commands
 
@@ -608,6 +648,11 @@ def run_dashboard(port: Optional[int] = None, open_browser: bool = True, stop: b
     except ImportError as exc:
         out(f"BudgetPilot: the dashboard is not available ({exc}).")
         return 1
+    if not stop:
+        try:
+            maybe_auto_refresh()  # only with prices.auto_refresh: true, and only when the book is stale
+        except Exception:
+            pass
     if stop:
         out("Dashboard stopped." if dashboard.stop() else "The dashboard was not running.")
         return 0
@@ -668,4 +713,125 @@ def run_transcript_check(path: Optional[str] = None, as_json: bool = False, out:
         + f". {policy['note']}")
     out(f"  models: {', '.join(report['models']) or 'none'}")
     out("Compare with `claude -p --output-format json` usage for the same session; they should match.")
+    return 0
+
+
+# ------------------------------------------------------------------ prices, reconcile, status line
+def run_prices(action: str = "show", confirm: bool = False, as_json: bool = False, provider: str = "anthropic",
+               model: Optional[str] = None, rates: Optional[Dict[str, float]] = None, source_url: str = "",
+               out: Callable[[str], None] = print) -> int:
+    from budgetpilot.core import pricebook
+
+    if action == "refresh":
+        report = pricebook.refresh(providers=(provider,), confirm=confirm)
+        if as_json:
+            out(json.dumps(report, indent=2))
+            return 0 if report["ok"] else 1
+        for name, status in report["providers"].items():
+            out(f"{name}: {status}")
+        if report.get("error"):
+            out(report["error"])
+            return 1
+        out(f"{len(report['changes'])} rate change(s), {len(report['new_models'])} new model(s); "
+            f"written to {report['written']} (previous copy: .bak)")
+        for model_id, key, old, new in report["changes"]:
+            out(f"  {model_id} {key}: {old} -> {new} per MTok (valid from today; older usage keeps the old rate)")
+        return 0
+    if action == "set":
+        if not model or not rates:
+            out("usage: bp prices set PROVIDER MODEL --input X --cache-write-5m X --cache-write-1h X "
+                "--cache-read X --output X [--source URL]")
+            return 1
+        try:
+            entry = pricebook.set_rates(provider, model, rates, source_url or "set by user")
+        except pricebook.PriceBookError as exc:
+            out(f"rejected: {exc}")
+            return 1
+        out(f"Set {provider}/{model} from today: " + ", ".join(f"{k} {v}" for k, v in entry["rates"].items())
+            + " per MTok")
+        return 0
+    book = pricebook.load(force=True)
+    age = pricebook.age_days(book)
+    if as_json:
+        out(json.dumps({"fetched_at": book.get("fetched_at"), "age_days": age, "stale": pricebook.is_stale(book),
+                        "user_file": book.get("user_file"), "entries": book["entries"]}, indent=2, default=str))
+        return 0
+    out(f"Price book fetched {book.get('fetched_at') or 'never'}"
+        + (f" ({age:.0f} days ago" + (", STALE: run bp prices refresh)" if pricebook.is_stale(book) else ")")
+           if age is not None else ""))
+    out(f"  file: {book.get('user_file') or 'bundled snapshot only'}")
+    out(f"  {'provider/model':<34} {'input':>8} {'5m write':>9} {'1h write':>9} {'read':>7} {'output':>8}  from")
+    for e in sorted(book["entries"], key=lambda e: (e["provider"], e["model_id"], e.get("valid_from") or "")):
+        r = e["rates"]
+        out(f"  {e['provider'] + '/' + e['model_id']:<34} {r['input']:>8g} {r['cache_write_5m']:>9g} "
+            f"{r['cache_write_1h']:>9g} {r['cache_read']:>7g} {r['output']:>8g}  "
+            f"{(e.get('valid_from') or 'always')[:10]} ({e.get('source')})")
+    return 0
+
+
+def run_reconcile(console: str, model_col: Optional[str] = None, cost_col: Optional[str] = None,
+                  date_col: Optional[str] = None, as_json: bool = False, out: Callable[[str], None] = print) -> int:
+    from budgetpilot.core import canary, hookdb
+
+    try:
+        rows = canary.read_console_export(console, model_col, cost_col, date_col)
+    except (OSError, ValueError) as exc:
+        out(f"Cannot read {console}: {exc}")
+        return 1
+    conn = hookdb.open_ready()
+    if conn is None:
+        out("No BudgetPilot database yet.")
+        return 1
+    try:
+        result = canary.reconcile_console(conn, rows)
+    finally:
+        conn.close()
+    if as_json:
+        out(json.dumps(result, indent=2))
+        return 0
+    out(f"Exported usage vs BudgetPilot ledger, {result['since'] or 'all dates'} to {result['until'] or 'now'}:")
+    for m in result["per_model"]:
+        diff = "n/a" if m["diff_pct"] is None else f"{m['diff_pct']:+.1f}%"
+        out(f"  {m['model']:<32} export ${m['exported_usd']:.4f}  BudgetPilot ${m['budgetpilot_usd']:.4f}  {diff}")
+    out(result["note"])
+    return 0
+
+
+def run_statusline(stdin: Any = None, out: Callable[[str], None] = print) -> int:
+    """
+    A Claude Code status line command. Records Claude Code's own session cost
+    next to BudgetPilot's (the drift check) and prints one short line. Never
+    fails: any problem prints a plain line and exits 0.
+    """
+    line = "BudgetPilot"
+    try:
+        raw = (stdin or sys.stdin).read()
+        data = json.loads(raw) if raw.strip() else {}
+        mode = state.get_mode()
+        line = f"BudgetPilot {dict(enforce='ON', observe='OBSERVE', off='OFF').get(mode, mode)}"
+        model = (data.get("model") or {}).get("display_name")
+        used = (data.get("context_window") or {}).get("used_percentage")
+        parts = [line] + ([model] if model else []) + ([f"context {used}%"] if used is not None else [])
+        session_id = str(data.get("session_id") or "")
+        cost = (data.get("cost") or {}).get("total_cost_usd")
+        if mode != "off" and session_id and cost is not None:
+            from budgetpilot.core import canary, hookdb
+
+            conn = hookdb.open_ready()
+            if conn is not None:
+                try:
+                    verdict = canary.record(conn, session_id, cost, "statusline", str(data.get("transcript_path") or ""))
+                    if verdict.get("drift"):
+                        parts.append("prices may be stale")
+                finally:
+                    conn.close()
+        line = " · ".join(parts)
+    except Exception as exc:
+        try:
+            from budgetpilot.core import hookdb
+
+            hookdb.log_error("statusline", exc)
+        except Exception:
+            pass
+    out(line)
     return 0

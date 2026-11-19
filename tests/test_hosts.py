@@ -189,6 +189,7 @@ def _make_v4_database(path):
     for table, column in added:
         raw.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
     raw.execute("DROP TABLE usage_cursors")
+    raw.execute("DROP TABLE IF EXISTS host_costs")
     raw.execute("DELETE FROM schema_version WHERE version >= 5")
     raw.execute("INSERT INTO cc_turns (message_id, session_id, output_tokens) VALUES ('old', 's0', 7)")
     raw.execute("INSERT INTO cc_sessions (session_id, host) VALUES ('s0', 'cli')")
