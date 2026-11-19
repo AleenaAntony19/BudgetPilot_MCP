@@ -14,7 +14,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 from budgetpilot.core.cc_ledger import session_totals
-from budgetpilot.hosts import get_adapter
+from budgetpilot.hosts import REGISTRY, get_adapter
 from budgetpilot.hosts.billing import from_row
 from budgetpilot.hosts.policy import money, report_policy
 
@@ -50,8 +50,7 @@ def build(conn: sqlite3.Connection, session_id: Optional[str] = None, limit: int
         priced = session_totals(conn, session_id=r["session_id"])  # priced from the price book now
         r["billing_units"], r["ref_usd"] = priced["billing_units"], priced["ref_usd"]
         billing = from_row(r)
-        policy = report_policy(billing, get_adapter(r["host"] if r["host"] in ("claude_code", "generic_mcp")
-                                                    else "claude_code").capabilities(),
+        policy = report_policy(billing, get_adapter(r["host"] if r["host"] in REGISTRY else "claude_code").capabilities(),
                                mixed=bool(r["billing_mixed"]))
         entry = {k: r[k] for k in ("session_id", "host", "first_ts", "last_ts")}
         entry.update({k: (round(r[k] or 0) if k == "billing_units" else int(r[k] or 0)) for k in TOKEN_KEYS})

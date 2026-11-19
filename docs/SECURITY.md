@@ -16,6 +16,18 @@ BudgetPilot runs inside your Claude Code sessions as hooks. This page says what 
 | Reversible install | Settings are merged, backed up, and removed exactly by `bp uninstall` | `test_install_merges_hooks_and_uninstall_removes_exactly_them` |
 | `off` really is off | With mode `off`, hooks return before opening the database | `test_mode_off_is_silent_and_writes_nothing` |
 
+### The gateway
+
+| Property | How | Test |
+|---|---|---|
+| Local only | Binds 127.0.0.1 and refuses requests whose Host header is not local | `test_only_local_requests_are_served` |
+| Credentials pass through, never stored | Authentication headers are forwarded to the upstream and exist only in memory; capture mode writes `<present>` instead of their values | `test_no_secret_or_prompt_text_is_stored_anywhere` |
+| No prompts or completions stored | Only token counts, model, timestamps, the response id and a session id are written | same |
+| Unchanged traffic | Request and response bytes are forwarded as received (hop-by-hop headers and Host excepted) | `test_request_and_response_bytes_pass_through_unchanged` |
+| No access log | Paths and headers are not logged | by design |
+
+Anyone who can reach 127.0.0.1 on your machine can send requests through a running gateway, with their own credentials; it adds none of yours. Stop it when you do not need it.
+
 ## What is stored, and where
 
 Everything stays on your machine, under `~/.budgetpilot` (or `$BP_HOME`):

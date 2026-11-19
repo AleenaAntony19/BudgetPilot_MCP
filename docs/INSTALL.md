@@ -114,6 +114,7 @@ The model can call `bp_recovery_choose` and `bp_request_scope` itself. Keep them
 | `billing.intended_mode` | | `subscription`, `api` or `cloud`: how you pay. Asked once by `bp install` (or `bp install --billing ...`). With `subscription`, a session that has `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set gets a one-time warning, a dashboard banner and a failed `bp doctor` check |
 | `billing.mode_override` | | Force the detected billing mode (`subscription`, `api`, `cloud`, `unknown`); shown as "set by you" |
 | `billing.provider_override` | | Force the provider (`anthropic`, `bedrock`, `vertex`, `azure`, ...) |
+| `gateway.port`, `gateway.upstreams`, `gateway.hard_budget_units`, `gateway.session_headers` | | Gateway settings, see [Gateway](#gateway) |
 | `prices.auto_refresh` | | `true`: `bp doctor` and `bp dashboard` refresh the price book when it is older than 30 days (default off) |
 
 Example:
@@ -161,6 +162,29 @@ BudgetPilot detects how each Claude Code session is billed, from the presence of
 | nothing | unknown, shown like a subscription |
 
 Dollar figures appear only for api and cloud sessions, labelled "API-equivalent estimate". Plan sessions show tokens and billing units ("relative weighting, not dollars"). A session whose billing changed between start and end is marked mixed and left out of dollar totals. `bp doctor` prints what was detected and why.
+
+## Gateway
+
+`bp gateway` is an optional local proxy between an agent and the model API. Point any agent that lets you set its API base URL at it:
+
+```bash
+bp gateway                                       # http://127.0.0.1:8899, upstream https://api.anthropic.com
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8899  # in the shell that starts Claude Code
+```
+
+It forwards every request unchanged and streams the response back as it arrives, so prompt caching works as before. It reads token usage from each response, which is exact and includes calls the transcript does not record (Claude Code makes small side requests, such as session titles). A response seen by both the gateway and the hooks is counted once.
+
+| Option | Config key | Meaning |
+|---|---|---|
+| `--port` | `gateway.port` | Default 8899 |
+| `--anthropic-upstream`, `--openai-upstream` | `gateway.upstreams` | Where requests go (default the official APIs) |
+| `--hard-budget-units N` | `gateway.hard_budget_units` | Refuse model calls once a session has used N billing units (default off) |
+| | `gateway.session_headers` | Request headers that identify a session (default `x-claude-code-session-id`) |
+| `--capture DIR` | | Record request and response shapes for checking a new host: header names, event names and usage numbers, never text or credentials |
+
+The hard budget is the only true cap BudgetPilot has: the refused call gets a clear error instead of reaching the model. It is checked before each call against the usage recorded so far, so a call that starts in the same instant as the previous response ends can still go through. The gateway sees model calls only, not tool calls: the gate, output trimming and recovery need the hooks.
+
+Front doors: `/v1/messages` (Anthropic, verified with Claude Code 2.1.328), `/v1/chat/completions` and `/v1/responses` (OpenAI format, built from OpenAI's API reference and not yet verified with real traffic). OpenAI's streaming chat reports usage only when the request asks for it (`stream_options.include_usage`). Any other path is forwarded without usage or budget. A response compressed with Brotli or zstd is forwarded but its usage cannot be read.
 
 ## Hosts
 

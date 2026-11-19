@@ -13,6 +13,7 @@ from __future__ import annotations
 # id -> (module, class name), in display order
 REGISTRY = {
     "claude_code": ("budgetpilot.hosts.claude_code", "ClaudeCodeAdapter"),
+    "gateway": ("budgetpilot.hosts.gateway", "GatewayAdapter"),
     "generic_mcp": ("budgetpilot.hosts.generic_mcp", "GenericMcpAdapter"),
 }
 DEFAULT_HOST = "claude_code"

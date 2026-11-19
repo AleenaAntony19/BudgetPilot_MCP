@@ -421,7 +421,11 @@ def _add_column(conn: sqlite3.Connection, table: str, column: str, decl: str) ->
     """ALTER TABLE ... ADD COLUMN, skipped when the column exists (SQLite has no IF NOT EXISTS here)."""
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table});")}
     if column not in existing:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl};")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl};")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column" not in str(exc).lower():  # another process added it first: fine
+                raise
 
 
 def _migration_5_hosts(conn: sqlite3.Connection) -> None:
@@ -582,8 +586,10 @@ def apply_migrations(conn: sqlite3.Connection) -> int:
                     ddl(conn)  # a Python migration; must be safe to re-run
                 else:
                     conn.executescript(ddl)
+                # Two processes can migrate a new database at once; every migration is
+                # idempotent, so a version row the other process already wrote is not an error.
                 conn.execute(
-                    "INSERT INTO schema_version (version, description) VALUES (?, ?);",
+                    "INSERT OR IGNORE INTO schema_version (version, description) VALUES (?, ?);",
                     (version, description),
                 )
             current_version = version

@@ -22,6 +22,8 @@ dependencies = [
 local = ["ollama"]
 api = ["fastapi", "uvicorn"]
 dev = ["pytest"]
+# `bp gateway` uses the standard library only; the extra exists so `pip install "budgetpilot[gateway]"` works.
+gateway = []
 
 [project.scripts]
 bp = "budgetpilot.cli:main"

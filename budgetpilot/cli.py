@@ -2196,6 +2196,15 @@ def create_parser() -> argparse.ArgumentParser:
     reconcile_parser.add_argument("--date-col", default=None)
     reconcile_parser.add_argument("--json", action="store_true")
 
+    gateway_parser = subparsers.add_parser("gateway", help="Run the local model API gateway (127.0.0.1 only)")
+    gateway_parser.add_argument("--port", type=int, default=None, help="Port (default: 8899)")
+    gateway_parser.add_argument("--anthropic-upstream", default=None, help="Default: https://api.anthropic.com")
+    gateway_parser.add_argument("--openai-upstream", default=None, help="Default: https://api.openai.com")
+    gateway_parser.add_argument("--hard-budget-units", type=float, default=None,
+                                help="Refuse model calls once a session has used this many billing units (default off)")
+    gateway_parser.add_argument("--capture", default=None,
+                                help="Write redacted request/response shapes here (no text, no credentials)")
+
     subparsers.add_parser("statusline", help="Claude Code status line command (records Claude Code's own cost "
                                              "for the price drift check)")
 
@@ -2578,6 +2587,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.command == "reconcile":
         from budgetpilot import cc_cli
         return cc_cli.run_reconcile(args.console, args.model_col, args.cost_col, args.date_col, args.json)
+    elif args.command == "gateway":
+        from budgetpilot.gateway.server import run as run_gateway
+        return run_gateway(args.port, args.anthropic_upstream, args.openai_upstream, args.hard_budget_units,
+                           args.capture)
     elif args.command == "statusline":
         from budgetpilot import cc_cli
         return cc_cli.run_statusline()

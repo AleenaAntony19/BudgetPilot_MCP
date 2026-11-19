@@ -179,6 +179,18 @@ Checked against the same sessions:
 - `message.usage` fields: `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens`, `output_tokens_details.thinking_tokens`, and `cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`.
 - In these sessions all cache writes were 1-hour writes.
 
+## Model API traffic (gateway)
+
+Captured on 2026-11-20 with `bp gateway --capture`: Claude Code 2.1.328, `claude -p`, Haiku, plan login, `ANTHROPIC_BASE_URL` set. Redacted record: `tests/fixtures/gateway/claude_code_2.1.328_capture.json`.
+
+| Finding | Use |
+|---|---|
+| `ANTHROPIC_BASE_URL` works with a plan (OAuth) login | The gateway path needs no API key |
+| Each request carries `x-claude-code-session-id` with the session id | The gateway files usage under the same session as the hooks |
+| Plan login: `authorization` present, no `x-api-key`, `oauth-2025-04-20` in `anthropic-beta` | Billing detected as subscription from header names and a protocol value |
+| Streams are `text/event-stream` with `Content-Encoding: gzip`; events `message_start`, `content_block_*`, `ping`, `message_delta`, `message_stop` | Usage is read from `message_start` and the cumulative `message_delta` |
+| One prompt made two model calls: a 1,174-token side request and the main call. `total_cost_usd` ($0.0042748) is the sum of both; the `usage` block and the transcript have only the main call | The transcript ledger misses side requests; the gateway does not |
+
 ## Not yet verified
 
 These need a person at an interactive session. None of them blocks the hook engine; each has a fallback.

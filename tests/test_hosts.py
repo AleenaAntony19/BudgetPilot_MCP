@@ -37,7 +37,7 @@ def _event(**kw):
 # ---------------------------------------------------------------- registry and capabilities
 def test_registry_lists_adapters_with_valid_tiers():
     adapters = all_adapters()
-    assert [a.id for a in adapters] == list(REGISTRY) == ["claude_code", "generic_mcp"]
+    assert [a.id for a in adapters] == list(REGISTRY) == ["claude_code", "gateway", "generic_mcp"]
     for adapter in adapters:
         assert adapter.tier in TIERS and adapter.capabilities().tier == adapter.tier
         assert adapter.describe()["tier_label"]
