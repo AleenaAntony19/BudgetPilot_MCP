@@ -950,6 +950,7 @@ def run_report(
     session_id: Optional[str] = None,
     format_type: str = "terminal",
     db_path: Optional[Union[Path, str]] = None,
+    legacy: bool = False,
 ) -> int:
     """
     Generate measured metrics reports from SQLite database.
@@ -962,6 +963,25 @@ def run_report(
     try:
         cursor = conn.execute("SELECT COUNT(*) FROM sessions;")
         total_sessions = cursor.fetchone()[0]
+        # Claude Code usage (version 2.0) comes first; display follows hosts.policy.report_policy.
+        from budgetpilot.core import cc_report
+
+        cc_known = cc_report.has_data(conn) and (
+            not session_id or conn.execute("SELECT 1 FROM cc_turns WHERE session_id=? LIMIT 1",
+                                           (session_id,)).fetchone() is not None)
+        if not legacy and cc_known:
+            data = cc_report.build(conn, session_id)
+            if fmt == "json":
+                data["legacy_sessions"] = total_sessions
+                print(cc_report.render(data, "json"))
+                return 0
+            print(cc_report.render(data, fmt))
+            if total_sessions == 0 or session_id:
+                return 0
+            print("")
+            print("Version 1.0 local-model sessions below (costs use the local-model rates set in config.json; "
+                  "`bp report --legacy` shows only these).")
+            print("")
         if total_sessions == 0:
             if fmt == "json":
                 print(json.dumps({"sessions": [], "message": "No sessions logged"}, indent=2))
@@ -2150,6 +2170,8 @@ def create_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--claude-md", action="store_true",
                                 help="Add a CLAUDE.md command block (fallback for hosts without hooks)")
     install_parser.add_argument("--yes", "-y", action="store_true", help="Do not ask for confirmation")
+    install_parser.add_argument("--billing", choices=["subscription", "api", "cloud"], default=None,
+                                help="How you pay for Claude Code (asked once if omitted and interactive)")
     subparsers.add_parser("uninstall", help="Remove exactly what `bp install` added")
 
     mode_parser = subparsers.add_parser("mode", help="Turn BudgetPilot on, off, or to measure-only (all projects)")
@@ -2339,6 +2361,10 @@ def create_parser() -> argparse.ArgumentParser:
         default="terminal",
         help="Report output format (default: terminal)",
     )
+    report_parser.add_argument(
+        "--legacy", action="store_true",
+        help="Only the version 1.0 local-model report (sessions and model_calls tables)",
+    )
 
     # estimator command (Phase D)
     estimator_parser = subparsers.add_parser("estimator", help="Scope estimator utilities (Phase D)")
@@ -2512,7 +2538,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.command == "install":
         from budgetpilot import cc_cli
         return cc_cli.run_install(scope=args.scope, repo=args.repo, hooks=args.hooks, mcp=args.mcp,
-                                  claude_md=args.claude_md, yes=args.yes)
+                                  claude_md=args.claude_md, yes=args.yes, billing=args.billing)
 
     elif args.command == "uninstall":
         from budgetpilot import cc_cli
@@ -2579,6 +2605,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return run_report(
             session_id=args.session_id,
             format_type=args.format,
+            legacy=args.legacy,
         )
 
     elif args.command == "estimator":

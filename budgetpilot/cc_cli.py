@@ -181,8 +181,31 @@ def remove_claude_md(path: Path) -> bool:
 
 
 # ------------------------------------------------------------------ install / uninstall
+BILLING_CHOICES = {"1": "subscription", "2": "api", "3": "cloud"}
+
+
+def set_intended_billing(mode: Optional[str]) -> Optional[str]:
+    """Store billing.intended_mode in config.json (None leaves it as it is)."""
+    if mode not in ("subscription", "api", "cloud"):
+        return None
+    cfg = state.read_config()
+    section = dict(cfg.get("billing") or {})
+    section["intended_mode"] = mode
+    state.update_config(billing=section)
+    return mode
+
+
+def _ask_intended_billing(out: Callable[[str], None]) -> Optional[str]:
+    out("How do you pay for Claude Code? This only decides whether BudgetPilot warns you when a session")
+    out("would be billed differently, and whether it shows dollar figures.")
+    out("  1) Pro / Max / Team plan   2) API key (per token)   3) cloud account (Bedrock, Vertex, Foundry)")
+    answer = input("Choose 1-3, or press Enter to skip: ").strip()
+    return BILLING_CHOICES.get(answer)
+
+
 def run_install(scope: str = "user", repo: Optional[str] = None, hooks: bool = False, mcp: bool = False,
-                claude_md: bool = False, yes: bool = False, out: Callable[[str], None] = print) -> int:
+                claude_md: bool = False, yes: bool = False, out: Callable[[str], None] = print,
+                billing: Optional[str] = None) -> int:
     repo_path = Path(repo).resolve() if repo else (Path.cwd() if scope == "project" else None)
     if not (hooks or mcp or claude_md):
         hooks = mcp = True
@@ -224,6 +247,15 @@ def run_install(scope: str = "user", repo: Optional[str] = None, hooks: bool = F
     from budgetpilot.core.store import init_db
 
     init_db().close()
+    intended = billing
+    if intended is None and not yes and sys.stdin.isatty() and not _intended_billing():
+        intended = _ask_intended_billing(out)
+    if set_intended_billing(intended):
+        out(f"Billing: you use {intended} billing (change with: bp install --billing ... or config.json).")
+    if claude:
+        from budgetpilot.hosts.billing import refresh_auth_cache
+
+        refresh_auth_cache(claude)  # caches login method and plan only; no personal fields
     out("")
     out(f"Done. Mode is {state.get_mode().upper()} (the mode is shared by all projects).")
     out("In Claude Code, type bp_mode_on to start and bp_dashboard to open the dashboard.")
@@ -416,11 +448,7 @@ def run_doctor(claude: bool = False, runs: int = 10, out: Callable[[str], None] 
     except Exception as exc:
         report("FAIL", "mcp >= 2", str(exc), 'pip install "mcp>=2.0.0"')
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        report("WARN", "ANTHROPIC_API_KEY is set",
-               "Claude Code will bill the API instead of your Pro/Max plan", "unset ANTHROPIC_API_KEY")
-    else:
-        report("PASS", "ANTHROPIC_API_KEY is not set")
+    _doctor_billing(report)
 
     home = state.get_bp_home()
     try:
@@ -529,6 +557,43 @@ def run_doctor(claude: bool = False, runs: int = 10, out: Callable[[str], None] 
 
 
 # ------------------------------------------------------------------ small commands
+def _intended_billing() -> Optional[str]:
+    from budgetpilot.hosts.billing import intended_mode
+
+    return intended_mode(state.read_config())
+
+
+def _doctor_billing(report: Callable[..., None]) -> None:
+    """Billing detection and the key-set check. Variable names only, never values."""
+    from budgetpilot.hosts.billing import KEY_VARS, detect_claude_code, read_auth_cache, refresh_auth_cache
+
+    cfg = state.read_config()
+    intended = _intended_billing()
+    binary = find_claude()
+    if binary:
+        refresh_auth_cache(binary)
+    for name in KEY_VARS:
+        if not os.environ.get(name):
+            report("PASS", f"{name} is not set")
+        elif intended == "subscription":
+            report("FAIL", f"{name} is set", "you said you use a plan, but this shell bills the API per token",
+                   f"unset {name}")
+        elif intended in ("api", "cloud"):
+            report("PASS", f"{name} is set", f"expected: you said you use {intended} billing")
+        else:
+            report("WARN", f"{name} is set", "Claude Code will bill the API instead of your Pro/Max plan",
+                   f"unset {name}")
+    billing = detect_claude_code(os.environ, cwd=os.getcwd(), config=cfg)
+    label = f"{billing.mode} ({billing.confidence} confidence" + (", set by you" if billing.source == "user_override"
+                                                                   else "") + f"), provider {billing.provider}"
+    evidence = "; ".join(billing.evidence) or "no signal"
+    report("PASS" if billing.mode != "unknown" else "WARN", "Billing detection", f"{label}: {evidence}",
+           "run `bp doctor` with the `claude` command available, or set billing.mode_override in config.json")
+    auth = read_auth_cache()
+    if auth is None:
+        report("WARN", "Claude Code login cache", "not cached yet", "run bp doctor where `claude` is available")
+
+
 def run_mode(mode: str, out: Callable[[str], None] = print) -> int:
     from budgetpilot.core import commands
 
@@ -554,6 +619,22 @@ def run_dashboard(port: Optional[int] = None, open_browser: bool = True, stop: b
         return 1
 
 
+def current_policy() -> Dict[str, Any]:
+    """Display policy for this shell's Claude Code billing (detected now, presence only)."""
+    from budgetpilot.hosts import get_adapter
+    from budgetpilot.hosts.billing import detect_claude_code
+    from budgetpilot.hosts.policy import report_policy
+
+    billing = detect_claude_code(os.environ, cwd=os.getcwd(), config=state.read_config())
+    return report_policy(billing, get_adapter("claude_code").capabilities())
+
+
+def money(value: Any, policy: Dict[str, Any]) -> Optional[str]:
+    from budgetpilot.hosts.policy import money as _money
+
+    return _money(value, policy)
+
+
 def run_transcript_check(path: Optional[str] = None, as_json: bool = False, out: Callable[[str], None] = print) -> int:
     from budgetpilot.core import cc_ledger
 
@@ -563,7 +644,10 @@ def run_transcript_check(path: Optional[str] = None, as_json: bool = False, out:
         return 1
     report = cc_ledger.check_transcript(target)
     if as_json:
-        out(json.dumps(report, indent=2))
+        from budgetpilot.hosts.policy import strip_dollars
+
+        policy = current_policy()
+        out(json.dumps({**strip_dollars(report, policy), "policy": policy}, indent=2))
         return 0
     totals = report["totals"]
     out(f"Transcript: {report['path']}")
@@ -575,8 +659,13 @@ def run_transcript_check(path: Optional[str] = None, as_json: bool = False, out:
     out(f"  tokens: input {totals['input_tokens']:,} · cache write {totals['cache_write']:,} · "
         f"cache read {totals['cache_read']:,} · output {totals['output_tokens']:,} "
         f"(thinking {totals['thinking_tokens']:,}, included in output)")
-    out(f"  cache-hit ratio {totals['cache_hit_ratio']} · billing units {report['billing_units']:,} · "
-        f"API-equivalent ${report['ref_usd']:.4f}" + (" (price guessed: unknown model)" if report["price_guess"] else ""))
+    policy = current_policy()
+    dollars = money(report["ref_usd"], policy)
+    out(f"  cache-hit ratio {totals['cache_hit_ratio']} · {policy['units_label']} {report['billing_units']:,}"
+        + (f" · {policy['dollars_label']} {dollars}" if dollars else "")
+        + (" (price guessed: unknown model)" if report["price_guess"] and dollars else ""))
+    out(f"  billing: {policy['billing_mode']}" + (" (set by you)" if policy["set_by_user"] else "")
+        + f". {policy['note']}")
     out(f"  models: {', '.join(report['models']) or 'none'}")
     out("Compare with `claude -p --output-format json` usage for the same session; they should match.")
     return 0

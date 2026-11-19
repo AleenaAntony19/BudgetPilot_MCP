@@ -102,6 +102,20 @@ def status_data(conn: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
             "turns": row[0], "input": row[1], "cache_write": row[2], "cache_read": row[3], "output": row[4],
             "billing_units": round(row[5]),
         }
+        latest = conn.execute(
+            "SELECT billing_mode, billing_provider, billing_confidence, billing_evidence, billing_source, "
+            "billing_mixed FROM cc_sessions ORDER BY last_seen DESC LIMIT 1").fetchone()
+        if latest:
+            from budgetpilot.hosts.billing import from_row
+            from budgetpilot.hosts.policy import report_policy
+
+            row_d = dict(zip(("billing_mode", "billing_provider", "billing_confidence", "billing_evidence",
+                              "billing_source", "billing_mixed"), latest))
+            billing = from_row(row_d)
+            policy = report_policy(billing, mixed=bool(row_d["billing_mixed"]))
+            data["billing"] = {"mode": billing.mode, "confidence": billing.confidence,
+                               "set_by_user": billing.source == "user_override", "mixed": policy["mixed"],
+                               "units_label": policy["units_label"]}
         gate = conn.execute(
             "SELECT verdict, COUNT(*), COALESCE(SUM(tokens_avoided_est),0) FROM gate_events WHERE ts >= ? "
             "GROUP BY verdict", (since,),
@@ -134,6 +148,11 @@ def status_text() -> str:
             f"24h: {usage['turns']} turns · in {_fmt(usage['input'])} · cache write {_fmt(usage['cache_write'])} · "
             f"cache read {_fmt(usage['cache_read'])} · out {_fmt(usage['output'])}"
         )
+    billing = data.get("billing")
+    if billing:
+        lines.append(f"Billing: {billing['mode']} ({billing['confidence']} confidence"
+                     + (", set by you" if billing["set_by_user"] else "") + (", mixed" if billing["mixed"] else "")
+                     + (")" if billing["mode"] in ("api", "cloud") else "): tokens only, no dollar figures"))
     task = data.get("task")
     if task:
         avoided = f" · avoided ~{_fmt(data['avoided_est'])} tokens (estimated)" if data.get("avoided_est") else ""

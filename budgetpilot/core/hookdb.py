@@ -25,6 +25,10 @@ LOCK_TIMEOUT_S = 0.05
 HEARTBEAT_SECONDS = 10
 OUTBOX_MAX_BYTES = 5_000_000
 ERROR_LOG_MAX_BYTES = 1_000_000
+# Reads the last object the newest migration (store.MIGRATIONS) creates, so it
+# fails on any older database and the hook runs the migrations once. One cheap
+# query per hook call. Update it together with every new migration.
+SCHEMA_PROBE = "SELECT billing_warned FROM cc_sessions LIMIT 0;"
 
 
 def db_path() -> Path:
@@ -59,13 +63,11 @@ def open_ready() -> Optional[sqlite3.Connection]:
     try:
         conn = connect()
         try:
-            # `usage_cursors` is the last object the newest migration creates, so
-            # its presence means the schema is current. One cheap query per hook.
-            conn.execute("SELECT 1 FROM usage_cursors LIMIT 1;")
+            conn.execute(SCHEMA_PROBE)
             return conn
         except sqlite3.OperationalError as exc:
             conn.close()
-            if "no such table" not in str(exc).lower():
+            if "no such table" not in str(exc).lower() and "no such column" not in str(exc).lower():
                 return None
         if not ensure_schema():
             return None
@@ -189,6 +191,41 @@ def contract_sent(conn: sqlite3.Connection, session_id: str) -> bool:
         return bool(row and row[0])
     except sqlite3.Error:
         return True  # unknown: do not risk injecting twice
+
+
+_BILLING_COLUMNS = ("billing_mode", "billing_provider", "billing_confidence", "billing_evidence", "billing_source",
+                    "billing_mode_end", "billing_mixed", "billing_warned")
+
+
+def session_billing(conn: sqlite3.Connection, session_id: str) -> dict:
+    """The session's stored billing columns ({} when the session is unknown)."""
+    row = conn.execute(f"SELECT {', '.join(_BILLING_COLUMNS)} FROM cc_sessions WHERE session_id=?",
+                       (session_id,)).fetchone()
+    return dict(zip(_BILLING_COLUMNS, row)) if row else {}
+
+
+def record_billing(conn: sqlite3.Connection, session_id: str, columns: dict, at_end: bool = False) -> None:
+    """
+    Store a detection result. At the start (or the first time a session is
+    seen) it fills the billing columns. At the end it only records the mode
+    seen then, and marks the session mixed when that mode differs.
+    """
+    current = session_billing(conn, session_id)
+    if not at_end or not current.get("billing_mode"):
+        write(conn, "UPDATE cc_sessions SET billing_mode=?, billing_provider=?, billing_confidence=?, "
+                    "billing_evidence=?, billing_source=? WHERE session_id=?",
+              (columns["billing_mode"], columns["billing_provider"], columns["billing_confidence"],
+               columns["billing_evidence"], columns["billing_source"], session_id))
+        if not at_end:
+            return
+        current = session_billing(conn, session_id)
+    mixed = 1 if (current.get("billing_mixed") or current.get("billing_mode") != columns["billing_mode"]) else 0
+    write(conn, "UPDATE cc_sessions SET billing_mode_end=?, billing_mixed=? WHERE session_id=?",
+          (columns["billing_mode"], mixed, session_id))
+
+
+def mark_billing_warned(conn: sqlite3.Connection, session_id: str) -> None:
+    write(conn, "UPDATE cc_sessions SET billing_warned=1 WHERE session_id=?", (session_id,))
 
 
 def mark_contract_sent(conn: sqlite3.Connection, session_id: str) -> None:

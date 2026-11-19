@@ -118,6 +118,47 @@ def ab_summary(conn):
     }
 
 
+def _session_billing(conn, session_id):
+    """Stored billing of one session as (BillingContext, mixed). Unknown for an unseen session."""
+    from budgetpilot.hosts.billing import from_row
+
+    row = one(conn, "SELECT billing_mode, billing_provider, billing_confidence, billing_evidence, billing_source, "
+                    "billing_mixed FROM cc_sessions WHERE session_id=?", (session_id,)) if session_id else {}
+    return from_row(row), bool(row.get("billing_mixed"))
+
+
+def billing_view(conn, session_id):
+    """Billing, display policy and key warning for the dashboard, all from hosts.policy.report_policy."""
+    from budgetpilot.hosts import get_adapter
+    from budgetpilot.hosts.billing import KEY_VARS, intended_mode
+    from budgetpilot.hosts.policy import report_policy
+
+    billing, mixed = _session_billing(conn, session_id)
+    policy = report_policy(billing, get_adapter("claude_code").capabilities(), mixed=mixed)
+    keys = [n for n in KEY_VARS if f"env:{n} present" in billing.evidence]
+    banner = None
+    if keys and intended_mode(state.read_config()) == "subscription":
+        banner = f"API key detected ({', '.join(keys)}); this session is billed per token, not against your plan."
+    return {"billing": {"mode": billing.mode, "provider": billing.provider, "confidence": billing.confidence,
+                        "set_by_user": billing.source == "user_override", "evidence": list(billing.evidence),
+                        "mixed": mixed},
+            "policy": policy, "banner": banner}
+
+
+# Sessions whose turns may be counted in dollar totals: billed per token, billing unchanged.
+_DOLLAR_SESSIONS = ("SELECT session_id FROM cc_sessions WHERE billing_mode IN ('api', 'cloud') "
+                    "AND COALESCE(billing_mixed, 0) = 0")
+
+
+def _apply_policy(totals, policy, dollars=None):
+    """Drop dollar fields unless the policy allows them; `dollars` replaces the sum when given."""
+    totals = dict(totals)
+    usd = totals.pop("ref_usd", None)
+    if policy.get("show_dollars"):
+        totals["ref_usd"] = usd if dollars is None else dollars
+    return totals
+
+
 def api_summary(conn):
     now = time.time()
     day_ago_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now - 86400))
@@ -136,14 +177,27 @@ def api_summary(conn):
     host = _json_field((connections.get("hooks") or {}).get("detail"), {}).get("host")
     task = one(conn, "SELECT task_id, scope, scope_conf, mode, ctx_used_est, ctx_budget, out_used, out_budget, status, "
                      "pending_recovery, ts FROM tasks_bp ORDER BY ts DESC LIMIT 1")
+    from budgetpilot.hosts.billing import BillingContext
+    from budgetpilot.hosts.policy import report_policy
+
+    view = billing_view(conn, session)
+    policy = view["policy"]
+    # Dollars over 24 hours count only sessions billed per token whose billing did not change.
+    dollars_24h = one(conn, f"SELECT COALESCE(SUM(ref_usd),0) AS usd, COUNT(DISTINCT session_id) AS n FROM cc_turns "
+                            f"WHERE ts >= ? AND session_id IN ({_DOLLAR_SESSIONS})", (day_ago_iso,))
+    policy_24h = report_policy(BillingContext("api" if dollars_24h.get("n") else "unknown"))
     return {
+        **view,
         "as_of": time.strftime("%H:%M:%S"), "version": budgetpilot.__version__,
         "mode": state.get_mode(), "budget": state.get_budget_slider(),
         "hooks_last_seen": (connections.get("hooks") or {}).get("last_seen"),
         "mcp_last_seen": (connections.get("mcp") or {}).get("last_seen"),
         "host": host, "session_id": session,
-        "tokens_session": _with_ratio(one(conn, f"SELECT {_TOKEN_SUMS} FROM cc_turns WHERE session_id=?", (session,))),
-        "tokens_24h": _with_ratio(one(conn, f"SELECT {_TOKEN_SUMS} FROM cc_turns WHERE ts >= ?", (day_ago_iso,))),
+        "tokens_session": _apply_policy(_with_ratio(one(conn, f"SELECT {_TOKEN_SUMS} FROM cc_turns WHERE session_id=?",
+                                                         (session,))), policy),
+        "tokens_24h": _apply_policy(_with_ratio(one(conn, f"SELECT {_TOKEN_SUMS} FROM cc_turns WHERE ts >= ?",
+                                                     (day_ago_iso,))), policy_24h, dollars_24h.get("usd")),
+        "dollar_sessions_24h": int(dollars_24h.get("n") or 0),
         "cache_ratio_series": series,
         "cache_drops": [i for i in range(1, len(series)) if series[i - 1] - series[i] > 0.20],
         "measured": ab_summary(conn),
@@ -240,9 +294,11 @@ th{color:var(--muted);font-weight:500}td.n,th.n{text-align:right}
 .bar{height:8px;background:var(--bg);border:1px solid var(--line);border-radius:4px;overflow:hidden;margin:2px 0 8px}
 .bar i{display:block;height:100%;background:var(--accent)}.bar i.over{background:var(--bad)}
 .est{color:var(--muted);font-size:12px}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.banner{border:1px solid var(--bad);color:var(--bad);border-radius:6px;padding:8px 12px;margin:0 0 12px}
 svg{display:block;width:100%;height:36px}code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 </style></head><body><main>
 <h1>BudgetPilot</h1><div class="sub" id="asof">loading…</div>
+<div class="banner" id="banner" hidden></div>
 <div class="grid">
 <section class="wide"><h2>Status</h2><div class="strip" id="status"></div></section>
 <section><h2>Tokens</h2><div id="tokens"></div></section>
@@ -268,7 +324,8 @@ function spark(v,drops){if(!v||v.length<2)return empty("no data yet");const w=30
 function tok(t,label){if(!t||!t.turns)return `<div class="k">${label}</div>`+empty("no data yet");
  return `<div class="k">${label} · ${num(t.turns)} turns</div>`+table(["input","cache write","cache read","output","thinking*"].map(t=>({t,n:1})),
  `<tr><td class="n">${num(t.input)}</td><td class="n">${num(t.cache_write)}</td><td class="n">${num(t.cache_read)}</td><td class="n">${num(t.output)}</td><td class="n">${num(t.thinking)}</td></tr>`)+
- `<div>billing units <span class="v">${num(t.billing_units)}</span> · cache-hit <span class="v">${pct(t.cache_hit_ratio)}</span> · API-equivalent $${Number(t.ref_usd).toFixed(4)}${t.price_guess?' <span class="warn">(price guessed)</span>':""}</div>`}
+ `<div>${esc(P.units_label)} <span class="v">${num(t.billing_units)}</span> · cache-hit <span class="v">${pct(t.cache_hit_ratio)}</span>${t.ref_usd!=null?` · ${esc(P.dollars_label||"API-equivalent estimate")} $${Number(t.ref_usd).toFixed(4)}${t.price_guess?' <span class="warn">(price guessed)</span>':""}`:""}</div>`}
+let P={units_label:"billing units"};
 const bar=(u,b)=>{const p=b?Math.min(100,100*u/b):0;return `<div class="bar"><i class="${u>b?"over":""}" style="width:${p}%"></i></div>`};
 async function get(p){const r=await fetch(p,{cache:"no-store"});return r.json()}
 async function refresh(){try{
@@ -277,10 +334,14 @@ async function refresh(){try{
  const label={enforce:"ON",observe:"OBSERVE",off:"OFF"}[s.mode]||s.mode;
  $("status").innerHTML=`<div><span class="pill ${esc(s.mode)}">${label}</span></div><div><span class="k">budget</span> <span class="v">${esc(s.budget)}</span></div>
  <div><span class="k">hooks</span> <span class="v">${ago(s.hooks_last_seen)}</span></div><div><span class="k">MCP</span> <span class="v">${ago(s.mcp_last_seen)}</span></div>
- <div><span class="k">host</span> <span class="v">${esc(s.host||"–")}</span></div><div><span class="k">version</span> <span class="v">${esc(s.version)}</span></div>`;
+ <div><span class="k">host</span> <span class="v">${esc(s.host||"–")}</span> <span class="k">(${esc(s.policy.tier)})</span></div>
+ <div><span class="k">billing</span> <span class="v">${esc(s.billing.mode)}</span> <span class="k">${esc(s.billing.confidence)} confidence${s.billing.set_by_user?", set by you":""}${s.billing.mixed?", mixed":""} · ${esc(s.billing.provider)}</span></div>
+ <div><span class="k">version</span> <span class="v">${esc(s.version)}</span></div>`;
+ const b=$("banner");b.hidden=!s.banner;b.textContent=s.banner||"";
+ P=s.policy;
  $("tokens").innerHTML=tok(s.tokens_session,"This session")+"<br>"+tok(s.tokens_24h,"Last 24 hours")+
  `<div class="k" style="margin-top:8px">cache-hit ratio per turn${s.cache_drops.length?' · <span class="bad">'+s.cache_drops.length+" drop(s) over 20 points</span>":""}</div>`+spark(s.cache_ratio_series,s.cache_drops)+
- `<div class="est">*thinking tokens are already included in output. API-equivalent cost: a Pro/Max plan is not billed per token.</div>`;
+ `<div class="est">*thinking tokens are already included in output. ${esc(s.policy.note)}${s.dollar_sessions_24h?" 24-hour dollars count only the "+s.dollar_sessions_24h+" session(s) billed per token.":""}</div>`;
  const m=s.measured,e=s.estimated;
  $("savings").innerHTML=`<div class="k">Measured (paired A/B)</div>`+(m.available?
  `<div class="big">${m.mean_change_pct>0?"+":""}${m.mean_change_pct}%</div><div>billing units, enforce vs observe · 95% CI ${m.ci_low_pct}% to ${m.ci_high_pct}% · ${m.pairs} pairs</div>

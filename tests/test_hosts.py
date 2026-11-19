@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from budgetpilot.core import cc_ledger, hookdb
-from budgetpilot.core.store import _migration_5_hosts, get_current_schema_version, init_db
+from budgetpilot.core.store import LATEST_SCHEMA_VERSION, _migration_5_hosts, get_current_schema_version, init_db
 from budgetpilot.hosts import REGISTRY, all_adapters, get_adapter
 from budgetpilot.hosts.base import ANTHROPIC_SEMANTICS, TIERS, Cursor, UsageEvent
 from budgetpilot.hosts.usage import canonical_tokens, ingest, store_events
@@ -63,9 +63,9 @@ def test_generic_mcp_is_tools_tier_with_no_usage_source():
     assert list(adapter.iter_usage(Cursor("k"))) == []
 
 
-def test_billing_is_unknown_until_detection_exists():
-    billing = get_adapter("claude_code").detect_billing({"ANTHROPIC_API_KEY": "sk-ant-secret"})
-    assert billing.mode == "unknown" and "sk-ant-secret" not in repr(billing)
+def test_claude_code_adapter_detects_billing_without_exposing_the_key():
+    billing = get_adapter("claude_code").detect_billing({"ANTHROPIC_API_KEY": "sk-ant-secret"}, {"auth": {}})
+    assert billing.mode == "api" and "sk-ant-secret" not in repr(billing)
 
 
 # ---------------------------------------------------------------- normalisation
@@ -183,11 +183,13 @@ def _make_v4_database(path):
     conn = init_db(path)
     conn.close()
     raw = sqlite3.connect(path)
-    for table, column in (("cc_turns", "host"), ("cc_turns", "provider"), ("cc_turns", "source"),
-                          ("cc_sessions", "host_adapter")):
+    added = [("cc_turns", "host"), ("cc_turns", "provider"), ("cc_turns", "source"), ("cc_sessions", "host_adapter")]
+    added += [("cc_sessions", c) for c in ("billing_mode", "billing_provider", "billing_confidence", "billing_evidence",
+                                           "billing_source", "billing_mode_end", "billing_mixed", "billing_warned")]
+    for table, column in added:
         raw.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
     raw.execute("DROP TABLE usage_cursors")
-    raw.execute("DELETE FROM schema_version WHERE version = 5")
+    raw.execute("DELETE FROM schema_version WHERE version >= 5")
     raw.execute("INSERT INTO cc_turns (message_id, session_id, output_tokens) VALUES ('old', 's0', 7)")
     raw.execute("INSERT INTO cc_sessions (session_id, host) VALUES ('s0', 'cli')")
     raw.commit()
@@ -199,7 +201,7 @@ def test_existing_v4_database_migrates_additively(tmp_path):
     _make_v4_database(path)
     conn = init_db(path)
     try:
-        assert get_current_schema_version(conn) == 5
+        assert get_current_schema_version(conn) == LATEST_SCHEMA_VERSION
         assert conn.execute("SELECT output_tokens, host, provider, source FROM cc_turns").fetchone()[:] == (
             7, "claude_code", "anthropic", "transcript")
         assert conn.execute("SELECT host, host_adapter FROM cc_sessions").fetchone()[:] == ("cli", "claude_code")
@@ -214,7 +216,7 @@ def test_hook_path_upgrades_an_existing_v4_database(tmp_path, monkeypatch):
     _make_v4_database(tmp_path / "bp.db")
     conn = hookdb.open_ready()
     assert conn is not None
-    assert conn.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0] == 5
+    assert conn.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0] == LATEST_SCHEMA_VERSION
     assert conn.execute("SELECT host FROM cc_turns WHERE message_id='old'").fetchone()[0] == "claude_code"
 
 

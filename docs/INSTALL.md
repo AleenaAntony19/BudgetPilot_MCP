@@ -111,6 +111,9 @@ The model can call `bp_recovery_choose` and `bp_request_scope` itself. Keep them
 | `scope_limits` | | per-scope overrides, see [ARCHITECTURE.md](ARCHITECTURE.md#scope-limits) |
 | `chars_per_token` | | bytes per token used for estimates (default 3.8) |
 | `limits.max_recovery_attempts` | | recovery attempts per task (default 3) |
+| `billing.intended_mode` | | `subscription`, `api` or `cloud`: how you pay. Asked once by `bp install` (or `bp install --billing ...`). With `subscription`, a session that has `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set gets a one-time warning, a dashboard banner and a failed `bp doctor` check |
+| `billing.mode_override` | | Force the detected billing mode (`subscription`, `api`, `cloud`, `unknown`); shown as "set by you" |
+| `billing.provider_override` | | Force the provider (`anthropic`, `bedrock`, `vertex`, `azure`, ...) |
 
 Example:
 
@@ -124,6 +127,20 @@ Model prices for the API-equivalent figures are built in. Override them in `~/.b
 ```json
 {"claude_models": {"claude-sonnet-5-5": {"input_per_million": 2.0, "cache_read_multiplier": 0.05}}}
 ```
+
+## Billing and dollar figures
+
+BudgetPilot detects how each Claude Code session is billed, from the presence of variables and settings only (it never reads a key's value):
+
+| Signal | Detected as |
+|---|---|
+| `CLAUDE_CODE_USE_BEDROCK`, `_MANTLE`, `_VERTEX`, `_FOUNDRY`, `_ANTHROPIC_AWS`, `_ANTHROPIC_GOOGLE_CLOUD` | cloud |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, an `apiKeyHelper` setting | api (per token) |
+| `ANTHROPIC_BASE_URL` alone | api, low confidence (depends on the gateway) |
+| a claude.ai login with a plan, from `claude auth status` (cached by `bp doctor` and `bp install`) | subscription |
+| nothing | unknown, shown like a subscription |
+
+Dollar figures appear only for api and cloud sessions, labelled "API-equivalent estimate". Plan sessions show tokens and billing units ("relative weighting, not dollars"). A session whose billing changed between start and end is marked mixed and left out of dollar totals. `bp doctor` prints what was detected and why.
 
 ## Hosts
 

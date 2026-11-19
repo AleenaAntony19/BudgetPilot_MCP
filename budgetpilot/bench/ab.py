@@ -233,7 +233,7 @@ def run_experiment(tasks: List[Dict[str, Any]], claude: str, repeats: int = 2, m
         "experiment": experiment, "model": model, "repeats": repeats, "arms": arms, "seed": seed,
         "tasks": [{k: v for k, v in t.items() if not k.startswith("_")} for t in tasks],
         "claude_version": _claude_version(claude), "allowed_tools": ALLOWED_TOOLS,
-        "runs": runs, "scope_limits": _scope_limits(),
+        "runs": runs, "scope_limits": _scope_limits(), "billing": run_billing(),
     }
     result["analysis"] = analyse(runs)
     return result
@@ -371,8 +371,33 @@ def _n(value: Any, digits: int = 0) -> str:
     return f"{value:,.{digits}f}"
 
 
+def ab_policy(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Display policy for an experiment, from the billing recorded with it (unknown for older results)."""
+    from budgetpilot.hosts import get_adapter
+    from budgetpilot.hosts.base import BillingContext
+    from budgetpilot.hosts.policy import report_policy
+
+    b = result.get("billing") or {}
+    billing = BillingContext(b.get("mode", "unknown"), b.get("provider", "unknown"), b.get("confidence", "low"),
+                             tuple(b.get("evidence") or ()), b.get("source", "detected"))
+    return report_policy(billing, get_adapter("claude_code").capabilities())
+
+
+def run_billing(mode: str = "observe") -> Dict[str, Any]:
+    """Billing of the test sessions, detected from the environment they are started with (presence only)."""
+    import tempfile
+
+    from budgetpilot.hosts.billing import detect_claude_code
+
+    with tempfile.TemporaryDirectory() as tmp:
+        b = detect_claude_code(child_env(mode, Path(tmp)))
+    return {"mode": b.mode, "provider": b.provider, "confidence": b.confidence, "evidence": list(b.evidence),
+            "source": b.source}
+
+
 def render_results(result: Dict[str, Any]) -> str:
     a = result["analysis"]
+    policy = ab_policy(result)
     base, treat = a["arms"].get(BASELINE, {}), a["arms"].get(a["treatment"], {})
     held_out = [t for t, row in a["per_task"].items() if row["held_out"]]
     lines = [
@@ -411,8 +436,9 @@ def render_results(result: Dict[str, Any]) -> str:
         f"| Repository | `bench/fixture_repo` (synthetic, about 3,300 lines; one 3,155-line file) |",
         f"| Success | a hidden test per task, copied in after the agent stops |",
         f"| Allowed tools | `{result.get('allowed_tools', ALLOWED_TOOLS)}` |",
-        "| Cost measure | billing units from the session transcript: input + 1.25 x 5-minute cache writes + "
-        "2 x 1-hour cache writes + r x cache reads + 5 x output |",
+        f"| Billing | {policy['billing_mode']} ({policy['billing_confidence']} confidence) |",
+        f"| Cost measure | {policy['units_label']} from the session transcript: input + 1.25 x 5-minute cache "
+        "writes + 2 x 1-hour cache writes + r x cache reads + 5 x output |",
         "",
         "## Per arm",
         "",
@@ -468,7 +494,7 @@ def render_results(result: Dict[str, Any]) -> str:
         "- One synthetic repository and one model. Results on real repositories and other models can differ.",
         "- Headless runs: the human-in-the-loop recovery path is not exercised (`BP_HITL=0`).",
         "- Billing units are API-equivalent weights. A Pro or Max plan is not billed per token, and the plan's own "
-        "usage weights are not published.",
+        "usage weights are not published. " + policy["note"],
         "- The observe arm still runs the hook processes, so it measures the effect of BudgetPilot's interventions, "
         "not of installing it. Latency added by the hooks is not part of billing units.",
         f"- Held-out tasks ({', '.join(held_out) if held_out else 'none in this run'}) must not be used to tune "

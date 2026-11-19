@@ -128,6 +128,16 @@ Only `hookSpecificOutput.additionalContext` is accepted. Verified by probe: the 
 
 `hookSpecificOutput.additionalContext` is added before the first prompt (docs).
 
+BudgetPilot also returns top-level `systemMessage` ("Warning message shown to the user", docs) once per session when an API key is set although the user said they use a plan. [VERIFY] how the editor extensions display it.
+
+### Environment seen by hooks
+
+| Finding | Source |
+|---|---|
+| Hooks inherit Claude Code's environment, except `OTEL_*` exporter variables; with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` or the HIPAA configuration, credentials are removed | Docs |
+| `CLAUDE_CODE_ENTRYPOINT` is `sdk-cli` in `claude -p` runs and `claude-vscode` in the VS Code extension (2.1.328) | Probe: blocking `UserPromptSubmit` hook, 0 tokens; observed in an extension session |
+| `claude auth status --json` reports `authMethod`, `apiProvider` and `subscriptionType`; cloud flags change `apiProvider`, `ANTHROPIC_AUTH_TOKEN` changes `authMethod` to `oauth_token`, `ANTHROPIC_API_KEY` changes nothing | Probe on 2.1.328 with dummy values |
+
 ### `Stop` and `SessionEnd`
 
 BudgetPilot prints nothing on either. A `Stop` hook that returns `decision: "block"` or `additionalContext` makes the model continue, which costs tokens. `SessionEnd` output is discarded by Claude Code.

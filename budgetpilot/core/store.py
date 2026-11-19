@@ -446,6 +446,26 @@ def _migration_5_hosts(conn: sqlite3.Connection) -> None:
 MIGRATIONS.append((5, "Host adapters: host/provider/source on usage rows, adapter id on sessions, usage cursors",
                    _migration_5_hosts))
 
+
+def _migration_6_billing(conn: sqlite3.Connection) -> None:
+    """
+    Billing context per session (presence-only evidence, never values).
+    Detected at SessionStart; checked again at SessionEnd, and a change marks
+    the session mixed (excluded from dollar totals). Additive, re-runnable.
+    """
+    for column, decl in (
+        ("billing_mode", "TEXT"), ("billing_provider", "TEXT"), ("billing_confidence", "TEXT"),
+        ("billing_evidence", "TEXT"), ("billing_source", "TEXT"), ("billing_mode_end", "TEXT"),
+        ("billing_mixed", "INTEGER DEFAULT 0"),
+        # Last: hookdb.SCHEMA_PROBE checks this column to know the schema is current.
+        ("billing_warned", "INTEGER DEFAULT 0"),
+    ):
+        _add_column(conn, "cc_sessions", column, decl)
+
+
+MIGRATIONS.append((6, "Billing context per session: mode, provider, confidence, evidence, mixed flag",
+                   _migration_6_billing))
+
 LATEST_SCHEMA_VERSION: int = max(v for v, _, _ in MIGRATIONS)
 
 # Tables added by migration 4 (the Claude Code hook engine).

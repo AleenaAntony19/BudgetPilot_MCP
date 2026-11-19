@@ -42,6 +42,13 @@ class ClaudeCodeAdapter(HostAdapter):
             ),
         )
 
+    def detect_billing(self, env, ctx=None):
+        """Presence-only billing detection; see hosts/billing.py for each signal's source."""
+        from budgetpilot.hosts.billing import detect_claude_code
+
+        ctx = ctx or {}
+        return detect_claude_code(env, cwd=ctx.get("cwd", ""), config=ctx.get("config"), auth=ctx.get("auth"))
+
     def iter_usage(self, since: Cursor):
         """
         New messages in the transcript at `since.path` after byte `since.position`.

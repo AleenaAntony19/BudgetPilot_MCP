@@ -27,6 +27,8 @@ Everything stays on your machine, under `~/.budgetpilot` (or `$BP_HOME`):
 | `snapshots/<task>/` | Copies of files as they were before a task first edited them; removed after a day |
 | `captures/` | Raw hook payloads, only while `bp capture on` is active. Payloads include prompts, file contents and command output |
 | `hook_errors.log`, `outbox.jsonl` | Internal errors, and log rows waiting for a locked database |
+| `claude_auth.json` | From `claude auth status`: login method, API provider and plan name only. Email, organisation and login expiry are dropped before writing |
+| `cc_sessions.billing_*` in `bp.db` | Detected billing mode, provider, confidence and evidence. Evidence names variables and settings (`env:ANTHROPIC_API_KEY present`); it never contains a key, token or URL |
 
 Prompts are not stored: only an estimated token count and the file names mentioned in the prompt. `bp doctor` warns if the home directory is writable by other users.
 

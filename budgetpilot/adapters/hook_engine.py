@@ -225,6 +225,11 @@ def on_user_prompt_submit(payload: Dict[str, Any], cfg: Dict[str, Any], mode: st
         cwd = str(payload.get("cwd") or "")
         hookdb.touch_session(conn, session_id, cwd, str(payload.get("transcript_path") or ""), _host())
         hookdb.heartbeat(conn, "hooks", "hook", {"host": _host(), "cwd": cwd})
+        if not hookdb.session_billing(conn, session_id).get("billing_mode"):
+            # The session started before BudgetPilot was on: detect now. The
+            # key-set warning stays a SessionStart message; doctor and the
+            # dashboard still show it.
+            _record_billing(conn, session_id, cwd, cfg, at_end=True)
 
         scope, confidence = 2, 0.0
         try:
@@ -282,12 +287,48 @@ def on_session_start(payload: Dict[str, Any], cfg: Dict[str, Any], mode: str) ->
                          {"host": _host(), "source": payload.get("source"), "model": payload.get("model")},
                          min_interval=0)
         hookdb.heartbeat(conn, "hooks", "hook", {"host": _host(), "cwd": cwd})
-        if mode != "enforce" or payload.get("source") == "resume" or hookdb.contract_sent(conn, session_id):
+        warning = _record_billing(conn, session_id, cwd, cfg)
+        context = []
+        if warning and mode == "enforce":
+            context.append(warning)
+        if mode == "enforce" and payload.get("source") != "resume" and not hookdb.contract_sent(conn, session_id):
+            hookdb.mark_contract_sent(conn, session_id)
+            context.append(CONTRACT_TEXT)
+        if not warning and not context:
             return None
-        hookdb.mark_contract_sent(conn, session_id)
-        return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": CONTRACT_TEXT}}
+        out: Dict[str, Any] = {}
+        if warning:
+            out["systemMessage"] = warning  # shown to the user (hooks docs, "Warning message shown to the user")
+        if context:
+            out["hookSpecificOutput"] = {"hookEventName": "SessionStart", "additionalContext": "\n".join(context)}
+        return out
     finally:
         conn.close()
+
+
+def _record_billing(conn: Any, session_id: str, cwd: str, cfg: Dict[str, Any], at_end: bool = False) -> Optional[str]:
+    """
+    Detect the session's billing (presence only) and store it. Returns the
+    key-set warning text the first time it applies to this session, else None.
+    Never raises: billing detection must not break a session.
+    """
+    from budgetpilot.core import hookdb
+
+    try:
+        from budgetpilot.hosts.billing import detect_claude_code, key_warning, to_row, warning_text
+
+        billing = detect_claude_code(os.environ, cwd=cwd, config=cfg)
+        hookdb.record_billing(conn, session_id, to_row(billing), at_end=at_end)
+        if at_end:
+            return None
+        names = key_warning(os.environ, cfg)
+        if not names or hookdb.session_billing(conn, session_id).get("billing_warned"):
+            return None
+        hookdb.mark_billing_warned(conn, session_id)
+        return warning_text(names)
+    except Exception as exc:
+        hookdb.log_error("billing", exc)
+        return None
 
 
 def on_pre_tool_use(payload: Dict[str, Any], cfg: Dict[str, Any], mode: str) -> Optional[Dict[str, Any]]:
@@ -521,6 +562,8 @@ def on_stop(payload: Dict[str, Any], cfg: Dict[str, Any], mode: str) -> Optional
                     txn.task["status"] = "done"
         hookdb.flush_outbox(conn)
         if payload.get("hook_event_name") == "SessionEnd":
+            _record_billing(conn, str(payload.get("session_id") or ""), str(payload.get("cwd") or ""), cfg,
+                            at_end=True)
             from budgetpilot.core.recovery_flow import cleanup_snapshots
 
             cleanup_snapshots()
