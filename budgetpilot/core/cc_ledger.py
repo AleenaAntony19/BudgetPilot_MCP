@@ -128,12 +128,7 @@ def _turn_from_row(row: Dict[str, Any], task_id: Optional[str],
     if row.get("type") != "assistant" or not isinstance(usage, dict) or not message.get("id"):
         return None
     tokens = parse_usage(usage)
-    input_price, read_mult, guessed = price_for(message.get("model"), prices)
-    prompt_tokens = tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"] + tokens["cache_read"]
-    for prefix, (threshold, factor) in LONG_PROMPT_RULES.items():
-        if str(message.get("model") or "").startswith(prefix) and prompt_tokens > threshold:
-            input_price *= factor
-    units = billing_units(tokens, read_mult)
+    units, ref_usd, guessed = price_tokens(message.get("model"), tokens, prices)
     tools = [
         block.get("name") for block in (message.get("content") or [])
         if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name")
@@ -144,9 +139,21 @@ def _turn_from_row(row: Dict[str, Any], task_id: Optional[str],
         **tokens,
         "context_tokens": tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"]
         + tokens["cache_read"],
-        "tools_called": tools, "billing_units": units, "ref_usd": units * input_price / 1e6,
+        "tools_called": tools, "billing_units": units, "ref_usd": ref_usd,
         "price_guess": int(guessed),
     }
+
+
+def price_tokens(model: Optional[str], tokens: Dict[str, int],
+                 prices: Optional[List[Tuple[str, float, float]]] = None) -> Tuple[float, float, bool]:
+    """(billing units, API-equivalent USD, price guessed) for one Anthropic message's token classes."""
+    input_price, read_mult, guessed = price_for(model, prices)
+    prompt_tokens = tokens["input_tokens"] + tokens["cache_write_5m"] + tokens["cache_write_1h"] + tokens["cache_read"]
+    for prefix, (threshold, factor) in LONG_PROMPT_RULES.items():
+        if str(model or "").startswith(prefix) and prompt_tokens > threshold:
+            input_price *= factor
+    units = billing_units(tokens, read_mult)
+    return units, units * input_price / 1e6, guessed
 
 
 def read_turns(path: str, offset: int = 0, prompt_id: Optional[str] = None) -> Tuple[List[Dict[str, Any]], int, Optional[str]]:

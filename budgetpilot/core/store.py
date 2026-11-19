@@ -416,6 +416,36 @@ MIGRATIONS: List[Tuple[int, str, str]] = [
     ),
 ]
 
+
+def _add_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    """ALTER TABLE ... ADD COLUMN, skipped when the column exists (SQLite has no IF NOT EXISTS here)."""
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table});")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl};")
+
+
+def _migration_5_hosts(conn: sqlite3.Connection) -> None:
+    """
+    Host adapters: which host and provider each usage row came from, and a
+    generic per-adapter read cursor. Additive and safe to re-run; existing rows
+    get the Claude Code defaults, which is what they are. `cc_sessions.host`
+    already holds Claude Code's entrypoint (e.g. "cli"), so the adapter id gets
+    its own column.
+    """
+    _add_column(conn, "cc_turns", "host", "TEXT DEFAULT 'claude_code'")
+    _add_column(conn, "cc_turns", "provider", "TEXT DEFAULT 'anthropic'")
+    _add_column(conn, "cc_turns", "source", "TEXT DEFAULT 'transcript'")
+    _add_column(conn, "cc_sessions", "host_adapter", "TEXT DEFAULT 'claude_code'")
+    # Created last: the hook engine probes for this table to know the schema is current.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS usage_cursors (host TEXT NOT NULL, key TEXT NOT NULL, path TEXT, "
+        "position INTEGER DEFAULT 0, state TEXT, PRIMARY KEY (host, key));"
+    )
+
+
+MIGRATIONS.append((5, "Host adapters: host/provider/source on usage rows, adapter id on sessions, usage cursors",
+                   _migration_5_hosts))
+
 LATEST_SCHEMA_VERSION: int = max(v for v, _, _ in MIGRATIONS)
 
 # Tables added by migration 4 (the Claude Code hook engine).
@@ -512,7 +542,10 @@ def apply_migrations(conn: sqlite3.Connection) -> int:
         if version > current_version:
             logger.info("Applying migration %d: %s", version, description)
             with conn:
-                conn.executescript(ddl)
+                if callable(ddl):
+                    ddl(conn)  # a Python migration; must be safe to re-run
+                else:
+                    conn.executescript(ddl)
                 conn.execute(
                     "INSERT INTO schema_version (version, description) VALUES (?, ?);",
                     (version, description),

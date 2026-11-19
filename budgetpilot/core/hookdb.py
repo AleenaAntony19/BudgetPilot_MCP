@@ -59,7 +59,9 @@ def open_ready() -> Optional[sqlite3.Connection]:
     try:
         conn = connect()
         try:
-            conn.execute("SELECT 1 FROM tasks_bp LIMIT 1;")
+            # `usage_cursors` is the last object the newest migration creates, so
+            # its presence means the schema is current. One cheap query per hook.
+            conn.execute("SELECT 1 FROM usage_cursors LIMIT 1;")
             return conn
         except sqlite3.OperationalError as exc:
             conn.close()
