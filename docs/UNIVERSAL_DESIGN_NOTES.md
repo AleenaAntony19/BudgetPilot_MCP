@@ -1,6 +1,6 @@
 # Universal design notes
 
-Working notes for making BudgetPilot host-agnostic. They list where the code assumes Claude Code and Anthropic, and what moves behind the new host-adapter interface (`budgetpilot/hosts/`). Written 2026-11-19, before Phase A.
+Working notes for making BudgetPilot host-agnostic. They list where the code assumes Claude Code and Anthropic, and what moves behind the new host-adapter interface (`budgetpilot/hosts/`). Written 2026-11-19, before Phase A. Status 2026-11-20: phases A to E are implemented on branch `universal`; what each host supports is in [HOST_SUPPORT.md](HOST_SUPPORT.md).
 
 ## Where the Claude-specific assumptions live
 

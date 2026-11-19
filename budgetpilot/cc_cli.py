@@ -450,6 +450,7 @@ def run_doctor(claude: bool = False, runs: int = 10, out: Callable[[str], None] 
 
     _doctor_billing(report)
     _doctor_prices(report)
+    _doctor_hosts(report)
 
     home = state.get_bp_home()
     try:
@@ -593,6 +594,24 @@ def _doctor_billing(report: Callable[..., None]) -> None:
     auth = read_auth_cache()
     if auth is None:
         report("WARN", "Claude Code login cache", "not cached yet", "run bp doctor where `claude` is available")
+
+
+def _doctor_hosts(report: Callable[..., None]) -> None:
+    """One line per host adapter: tier and activity. Informational."""
+    try:
+        from budgetpilot.core import hookdb
+
+        conn = hookdb.open_ready()
+        try:
+            hosts = host_status(conn)
+        finally:
+            if conn is not None:
+                conn.close()
+        for h in hosts:
+            report("PASS", f"Host {h['id']}", f"{h['tier_label']}; {h['sessions']} session(s), last seen "
+                   f"{_ago(h['last_seen'])}; {len(h['open_items'])} item(s) to verify (bp hosts)")
+    except Exception as exc:
+        report("WARN", "Hosts", str(exc)[:200])
 
 
 def maybe_auto_refresh() -> Optional[Dict[str, Any]]:
@@ -883,4 +902,74 @@ def run_capture_codex(path: Optional[str] = None, out_file: Optional[str] = None
         json.dump(sample, f, indent=1)
     out(f"Wrote a redacted sample of {os.path.basename(path)} to {target}: item types, ids, model names and token "
         "numbers only (no messages, tool calls, instructions or paths). Check it before sharing.")
+    return 0
+
+
+# ------------------------------------------------------------------ hosts
+def host_status(conn: Any = None) -> List[Dict[str, Any]]:
+    """Every adapter with its tier, what it can do, recent activity and open [VERIFY] items."""
+    from budgetpilot.hosts import all_adapters
+
+    sessions: Dict[str, Tuple[int, Any]] = {}
+    beats: Dict[str, Any] = {}
+    if conn is not None:
+        try:
+            for host, n, last in conn.execute(
+                    "SELECT COALESCE(host_adapter, 'claude_code'), COUNT(*), MAX(last_seen) FROM cc_sessions GROUP BY 1"):
+                sessions[host] = (n, last)
+            beats = {name: last for name, last in conn.execute("SELECT name, last_seen FROM connections")}
+        except Exception:
+            pass
+    out = []
+    for adapter in all_adapters():
+        info = adapter.describe()
+        n, last = sessions.get(adapter.id, (0, None))
+        seen = {"claude_code": beats.get("hooks"), "gateway": beats.get("gateway"),
+                "generic_mcp": beats.get("mcp")}.get(adapter.id)
+        info.update(sessions=n, last_session=last, last_seen=seen or last)
+        if adapter.id == "codex_cli":
+            from budgetpilot.hosts.codex_cli import discover
+
+            plain, compressed = discover()
+            info["logs_found"] = len(plain) + len(compressed)
+        out.append(info)
+    return out
+
+
+def _ago(ts: Any) -> str:
+    if not ts:
+        return "never"
+    seconds = max(0, time.time() - float(ts))
+    return f"{seconds / 60:.0f} min ago" if seconds < 5400 else f"{seconds / 3600:.0f} h ago" if seconds < 172800 \
+        else f"{seconds / 86400:.0f} d ago"
+
+
+def run_hosts(as_json: bool = False, out: Callable[[str], None] = print) -> int:
+    from budgetpilot.core import hookdb
+
+    conn = hookdb.open_ready()
+    try:
+        hosts = host_status(conn)
+    finally:
+        if conn is not None:
+            conn.close()
+    if as_json:
+        out(json.dumps(hosts, indent=2, default=str))
+        return 0
+    for h in hosts:
+        caps = h["capabilities"]
+        can = [label for key, label in (("intercept_tool_calls", "gate tool calls"), ("trim_tool_output", "trim output"),
+                                        ("proxy_tools", "proxy tools"), ("hard_token_cap", "hard budget"))
+               if caps.get(key)]
+        usage = caps.get("usage_source") or "none"
+        out(f"{h['id']:<12} {h['tier']:<8} {h['name']}")
+        out(f"             {h['tier_label']}; usage: {usage}{' (exact)' if caps.get('usage_exact') else ''}; "
+            f"can: {', '.join(can) or 'nothing beyond measuring'}")
+        activity = f"{h['sessions']} session(s), last seen {_ago(h['last_seen'])}"
+        if "logs_found" in h:
+            activity += f"; {h['logs_found']} Codex log file(s) on this machine"
+        out(f"             {activity}")
+        for item in h["open_items"]:
+            out(f"             [VERIFY] {item}")
+    out("Details: docs/HOST_SUPPORT.md")
     return 0

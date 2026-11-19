@@ -113,20 +113,38 @@ Every failure is stored in `failure_fingerprints`, keyed by a hash of the error 
 - It cannot see or change the system prompt, the conversation history or the model choice.
 - It only acts where Claude Code runs hooks. Other hosts can use the MCP proxy tools (`bp_read_file` and so on), which enforce the same scope limits only when the agent chooses to call them.
 
+## Hosts, billing and prices
+
+The flow above is the Claude Code (`enforce`) path. Around it sits a host layer, `budgetpilot/hosts/`:
+
+| Piece | Where | What it does |
+|---|---|---|
+| Host adapters | `hosts/claude_code.py`, `gateway.py`, `generic_mcp.py`, `codex_cli.py` | Each declares its tier and capabilities (`bp hosts`), detects billing, and turns its usage into one record type, `UsageEvent` (`hosts/base.py`) |
+| Normalised usage | `hosts/usage.py` | Providers count differently (OpenAI counts cached tokens inside input; Anthropic does not). Flags on each record say how, and the ledger stores non-overlapping classes. One table, `cc_turns`, holds every host's usage, keyed by message or response id |
+| Billing | `hosts/billing.py` | Per session, from the presence of variables and settings and the cached `claude auth status`; never a value. Re-checked at session end: a change marks the session mixed |
+| Display policy | `hosts/policy.py` | `report_policy(billing, capabilities)` decides for every report whether dollars appear and which panels apply. Nothing else decides |
+| Price book | `core/pricebook.py`, `data/pricebook.json` | Dated per-model rates with their source; unknown models are unpriced, never guessed. Reports re-price stored tokens on read |
+| Drift check | `core/canary.py` | Compares BudgetPilot's dollars with Claude Code's own figure (status line, `claude -p`) |
+| Gateway | `gateway/` | Local proxy: unchanged traffic, exact usage per call, optional hard budget |
+
+How to choose between hosts and what each cannot do: [HOST_SUPPORT.md](HOST_SUPPORT.md).
+
 ## Dashboard
 
 `bp dashboard` (or `bp_dashboard` in Claude Code) serves one page at `http://127.0.0.1:8765` (the next free port if that one is busy). It reads the database read-only and refreshes every 3 seconds. Panels:
 
 | Panel | Shows |
 |---|---|
-| Status | Mode, dial, when hooks and the MCP server were last seen, host, version |
-| Tokens | Token use for this session and the last 24 hours from the transcript ledger, billing units, API-equivalent cost, cache-hit ratio per turn (with drops flagged) |
+| Status | Mode, dial, when hooks and the MCP server were last seen, host and its tier, billing mode (confidence, "set by you", mixed), price-book date with a stale badge and the drift message, version. A red banner when an API key is set although you said you use a plan |
+| Tokens | Token use for this session and the last 24 hours, billing units, cache-hit ratio per turn (with drops flagged). Dollars only when the session is billed per token; 24-hour dollars count only such sessions, without mixed ones |
 | Savings | The latest paired A/B result (measured), and tokens avoided by the gate and by trimming, BudgetPilot's own overhead and the net (all labelled estimated) |
 | Scope & budget | The current task's scope and confidence, context and output budget used, a pending recovery |
 | Gate | Decision counts, top rules with estimated tokens avoided, the last 10 decisions |
 | Failure fingerprints | The persistent failure ledger: signature, class, count, actions tried, what resolved it |
 | Recovery | Recovery decisions: recommended and chosen action, who chose, outcome |
 | Connections | Hook, MCP and dashboard processes, the current transcript, and how far the estimator's token estimates are from the transcript totals |
+
+For a host without hooks (gateway, MCP-only, imported logs) the Scope & budget, Gate and Recovery panels are hidden: BudgetPilot does not act there.
 
 JSON endpoints under `/api/` (`summary`, `tasks`, `gate`, `failures`, `recovery`, `connections`, `ab`) serve the same data. Code: `budgetpilot/dashboard/server.py`.
 
@@ -137,13 +155,16 @@ JSON endpoints under `/api/` (`summary`, `tasks`, `gate`, `failures`, `recovery`
 | `budgetpilot/adapters/` | `hooks.py` (the hook entry point Claude Code runs), `hook_engine.py` (per-event logic), `mcp_server.py` (MCP tools) |
 | `budgetpilot/core/` | Version 2.0 path: `scope.py` (limits table), `estimator.py` (scope estimate), `ccgate.py` (gate), `recovery_flow.py` (fingerprints and 3E), `router.py` (expected-value routing), `cc_ledger.py` (transcript ledger), `hookdb.py` and `store.py` (SQLite and migrations), `state.py` (mode, dial, home), `commands.py` (`bp_*` commands) |
 | `budgetpilot/core/calibration/` | CRC calibration and the rollout collector behind `bp rollout collect` and `bp calibrate` |
+| `budgetpilot/hosts/` | Host adapters, normalised usage, billing detection, display policy |
+| `budgetpilot/gateway/` | `bp gateway` |
+| `budgetpilot/data/pricebook.json` | Bundled price snapshot |
 | `budgetpilot/dashboard/` | The local dashboard |
 | `budgetpilot/bench/` | `ab.py` (the paired A/B harness behind `bp ab`); the other files are the 1.0 benchmark (`bp bench`) |
 | `budgetpilot/installer.py`, `cc_cli.py`, `capture_hook.py` | `bp install` / `uninstall` / `doctor` / `capture` |
 | `budgetpilot/cli.py` | The `bp` command |
 | `budgetpilot/agent/`, `budgetpilot/recovery/`, `core/gate.py`, `core/ledger.py`, `core/savings.py` and similar | The 1.0 local-model engine, still used by `bp run`, `bp chat` and `bp bench` |
 | `bench/` | `ab_tasks.yaml`, the fixture repository `fixture_repo/` and the hidden tests `fixture_hidden/` used by `bp ab` |
-| `tests/` | Unit and hook tests; `tests/fixtures/hooks/` holds the captured payloads |
+| `tests/` | Unit and hook tests; `tests/fixtures/` holds captured hook payloads, a transcript, pricing pages, gateway traffic shapes and synthetic Codex logs |
 | `scripts/` | Fixture checks, capture import, a demo walkthrough |
 | `docs/` | These documents; `docs/results/` holds the archived A/B data |
 | `main.py`, `mcp_server.py`, `api.py`, `analytics.py`, `budgetpilot_core.py` (root) | 1.0 compatibility modules. Not installed by `pip install .` and not used by version 2.0 |

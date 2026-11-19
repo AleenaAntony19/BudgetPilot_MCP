@@ -137,8 +137,8 @@ def _session_billing(conn, session_id):
     from budgetpilot.hosts.billing import from_row
 
     row = one(conn, "SELECT billing_mode, billing_provider, billing_confidence, billing_evidence, billing_source, "
-                    "billing_mixed FROM cc_sessions WHERE session_id=?", (session_id,)) if session_id else {}
-    return from_row(row), bool(row.get("billing_mixed"))
+                    "billing_mixed, host_adapter FROM cc_sessions WHERE session_id=?", (session_id,)) if session_id else {}
+    return from_row(row), bool(row.get("billing_mixed")), row.get("host_adapter") or "claude_code"
 
 
 def billing_view(conn, session_id):
@@ -149,14 +149,17 @@ def billing_view(conn, session_id):
 
     from budgetpilot.core import canary, pricebook
 
-    billing, mixed = _session_billing(conn, session_id)
+    from budgetpilot.hosts import REGISTRY
+
+    billing, mixed, host_id = _session_billing(conn, session_id)
+    adapter = get_adapter(host_id if host_id in REGISTRY else "claude_code")
     drift = canary.status(conn, session_id) if conn is not None else None
-    policy = report_policy(billing, get_adapter("claude_code").capabilities(), mixed=mixed,
+    policy = report_policy(billing, adapter.capabilities(), mixed=mixed,
                            reconciled=bool(drift and drift["reconciled"]))
     book = pricebook.load()
     prices = {"fetched_at": book.get("fetched_at"), "age_days": pricebook.age_days(book),
               "stale": pricebook.is_stale(book)}
-    keys = [n for n in KEY_VARS if f"env:{n} present" in billing.evidence]
+    keys = [n for n in KEY_VARS if any(e.startswith(f"env:{n} present") for e in billing.evidence)]
     banner = None
     if keys and intended_mode(state.read_config()) == "subscription":
         banner = f"API key detected ({', '.join(keys)}); this session is billed per token, not against your plan."
@@ -164,6 +167,8 @@ def billing_view(conn, session_id):
                         "set_by_user": billing.source == "user_override", "evidence": list(billing.evidence),
                         "mixed": mixed},
             "policy": policy, "banner": banner, "prices": prices,
+            "host_adapter": {"id": adapter.id, "name": adapter.name, "tier": adapter.tier,
+                             "tier_label": adapter.describe()["tier_label"]},
             "drift": None if not drift else {k: drift[k] for k in ("reconciled", "drift", "closest_diff_pct", "message")}}
 
 
@@ -326,10 +331,10 @@ svg{display:block;width:100%;height:36px}code{font-family:ui-monospace,Menlo,Con
 <section class="wide"><h2>Status</h2><div class="strip" id="status"></div></section>
 <section><h2>Tokens</h2><div id="tokens"></div></section>
 <section><h2>Savings</h2><div id="savings"></div></section>
-<section><h2>Scope &amp; budget</h2><div id="scope"></div></section>
-<section><h2>Gate</h2><div id="gate"></div></section>
+<section data-control><h2>Scope &amp; budget</h2><div id="scope"></div></section>
+<section data-control><h2>Gate</h2><div id="gate"></div></section>
 <section class="wide"><h2>Failure fingerprints (persistent ledger)</h2><div class="scroll" id="failures"></div></section>
-<section class="wide"><h2>Recovery</h2><div class="scroll" id="recovery"></div></section>
+<section class="wide" data-control><h2>Recovery</h2><div class="scroll" id="recovery"></div></section>
 <section class="wide"><h2>Connections</h2><div class="scroll" id="connections"></div></section>
 </div></main>
 <script>
@@ -357,12 +362,13 @@ async function refresh(){try{
  const label={enforce:"ON",observe:"OBSERVE",off:"OFF"}[s.mode]||s.mode;
  $("status").innerHTML=`<div><span class="pill ${esc(s.mode)}">${label}</span></div><div><span class="k">budget</span> <span class="v">${esc(s.budget)}</span></div>
  <div><span class="k">hooks</span> <span class="v">${ago(s.hooks_last_seen)}</span></div><div><span class="k">MCP</span> <span class="v">${ago(s.mcp_last_seen)}</span></div>
- <div><span class="k">host</span> <span class="v">${esc(s.host||"–")}</span> <span class="k">(${esc(s.policy.tier)})</span></div>
+ <div><span class="k">host</span> <span class="v">${esc(s.host_adapter.name)}</span> <span class="k">${esc(s.host_adapter.tier_label)}${s.host?" · "+esc(s.host):""}</span></div>
  <div><span class="k">billing</span> <span class="v">${esc(s.billing.mode)}</span> <span class="k">${esc(s.billing.confidence)} confidence${s.billing.set_by_user?", set by you":""}${s.billing.mixed?", mixed":""} · ${esc(s.billing.provider)}</span></div>
  <div><span class="k">prices</span> <span class="v">${esc((s.prices.fetched_at||"never").slice(0,10))}</span>${s.prices.stale?' <span class="bad">stale</span>':""}${s.drift&&s.drift.message?' <span class="warn">'+esc(s.drift.message)+'</span>':""}</div>
  <div><span class="k">version</span> <span class="v">${esc(s.version)}</span></div>`;
  const b=$("banner");b.hidden=!s.banner;b.textContent=s.banner||"";
  P=s.policy;
+ document.querySelectorAll("[data-control]").forEach(e=>{e.hidden=!s.policy.show_gate});
  $("tokens").innerHTML=tok(s.tokens_session,"This session")+"<br>"+tok(s.tokens_24h,"Last 24 hours")+
  `<div class="k" style="margin-top:8px">cache-hit ratio per turn${s.cache_drops.length?' · <span class="bad">'+s.cache_drops.length+" drop(s) over 20 points</span>":""}</div>`+spark(s.cache_ratio_series,s.cache_drops)+
  `<div class="est">*thinking tokens are already included in output. ${esc(s.policy.note)}${s.dollar_sessions_24h?" 24-hour dollars count only the "+s.dollar_sessions_24h+" session(s) billed per token.":""}</div>`;

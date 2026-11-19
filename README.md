@@ -3,6 +3,7 @@
 BudgetPilot is a set of Claude Code hooks, a small MCP server and a local dashboard that aim to cut the token cost of coding-agent sessions.
 It sizes each prompt, narrows or blocks wasteful tool calls, limits what a task may add to the context, and steps in when tests fail.
 It never calls a model itself: Claude Code, logged in with your plan, stays the model.
+Its main measure is tokens used for the same task success; dollar figures appear only for sessions billed per token.
 
 This is version 2.0. Version 1.0 was a decision engine that drove a local model; it is the first commit of this repository's history, and [docs/HISTORY.md](docs/HISTORY.md) explains what changed and why.
 
@@ -52,11 +53,24 @@ prompt -> estimate -> gate -> output limits -> verify / recover (3E) -> ledger
 
 Design and limits in detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Using it with a Pro or Max plan
+## Hosts
 
-- BudgetPilot needs no API key. Keep `ANTHROPIC_API_KEY` **unset**, or Claude Code bills the API instead of your plan. `bp doctor` warns if it is set.
-- A plan is not billed per token. A saving means more headroom in the plan's 5-hour and weekly limits, not dollars.
-- The dashboard shows an "API-equivalent" cost for comparison only.
+Full control needs Claude Code's hooks. Other hosts get less, and BudgetPilot says which:
+
+| Host | Tier | What you get |
+|---|---|---|
+| Claude Code (CLI and editor extensions) | enforce | Everything above |
+| Agents with a configurable API base URL, via `bp gateway` | gateway | Exact usage per model call and an optional hard budget; no tool-call control |
+| An editor's own agent connected to the MCP server | tools | Proxy tools the agent may use; no interception, no usage (untested) |
+| Codex CLI, via `bp import codex` (experimental) | observe | Usage from its logs; measured only, no control |
+
+Details, and what is still unverified for each: [docs/HOST_SUPPORT.md](docs/HOST_SUPPORT.md), or `bp hosts`.
+
+## Plans, API keys and dollars
+
+- BudgetPilot needs no API key. Keep `ANTHROPIC_API_KEY` **unset**, or Claude Code bills the API instead of your plan. Tell `bp install` you use a plan and BudgetPilot warns you, once per session, when a key is set.
+- BudgetPilot detects how each session is billed. A plan is not billed per token: plan sessions show tokens and billing units ("relative weighting, not dollars") and no dollar figures. A saving means more headroom in the plan's 5-hour and weekly limits.
+- API and cloud sessions also show dollars, labelled "API-equivalent estimate", from a dated price book (`bp prices`). They are labelled "reconciled" only when they agree with Claude Code's own cost figure.
 
 ## Limits
 
@@ -103,7 +117,8 @@ The recovery router and the scope-first design follow two papers, cited as given
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | Installation, commands, MCP tools, configuration, hosts |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The flow, scope limits, gate rules, recovery, dashboard, repository layout |
-| [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md) | The Claude Code hook formats BudgetPilot relies on, and how each was verified |
+| [docs/HOST_SUPPORT.md](docs/HOST_SUPPORT.md) | Each host's tier, what BudgetPilot can and cannot do there, and what is verified |
+| [docs/HOOK_CONTRACT.md](docs/HOOK_CONTRACT.md) | The Claude Code hook and API traffic formats BudgetPilot relies on, and how each was verified |
 | [docs/RESULTS.md](docs/RESULTS.md) | Paired A/B results |
 | [docs/SECURITY.md](docs/SECURITY.md) | What it does and does not protect |
 | [docs/HISTORY.md](docs/HISTORY.md) | Version 1.0 to 2.0: what changed and why |

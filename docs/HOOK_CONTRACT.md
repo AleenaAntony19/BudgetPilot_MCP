@@ -136,6 +136,7 @@ BudgetPilot also returns top-level `systemMessage` ("Warning message shown to th
 |---|---|
 | Hooks inherit Claude Code's environment, except `OTEL_*` exporter variables; with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` or the HIPAA configuration, credentials are removed | Docs |
 | `CLAUDE_CODE_ENTRYPOINT` is `sdk-cli` in `claude -p` runs and `claude-vscode` in the VS Code extension (2.1.328) | Probe: blocking `UserPromptSubmit` hook, 0 tokens; observed in an extension session |
+| With a (dummy) `ANTHROPIC_API_KEY`: `claude -p` used it (`apiKeySource: ANTHROPIC_API_KEY`, 401, $0); the same run with `CLAUDE_CODE_ENTRYPOINT=claude-vscode` inherited ignored it (`apiKeySource: none`) and billed the plan | Probe, 2026-11-20 |
 | `claude auth status --json` reports `authMethod`, `apiProvider` and `subscriptionType`; cloud flags change `apiProvider`, `ANTHROPIC_AUTH_TOKEN` changes `authMethod` to `oauth_token`, `ANTHROPIC_API_KEY` changes nothing | Probe on 2.1.328 with dummy values |
 
 ### `Stop` and `SessionEnd`

@@ -23,7 +23,8 @@ A negative change means BudgetPilot used fewer billing units. A saving only coun
 | Repository | `bench/fixture_repo` (synthetic, about 3,300 lines; one 3,155-line file) |
 | Success | a hidden test per task, copied in after the agent stops |
 | Allowed tools | `Read,Edit,Write,Grep,Glob,Bash(pytest *),Bash(python -m pytest *)` |
-| Cost measure | billing units from the session transcript: input + 1.25 x 5-minute cache writes + 2 x 1-hour cache writes + r x cache reads + 5 x output |
+| Billing | not recorded (this run predates billing detection); `bp ab` removes ANTHROPIC_API_KEY, so the test sessions use the plan login |
+| Cost measure | billing units (relative weighting, not dollars) from the session transcript: input + 1.25 x 5-minute cache writes + 2 x 1-hour cache writes + r x cache reads + 5 x output |
 
 ## Per arm
 
@@ -70,12 +71,14 @@ The gate changed few calls, so in this run the difference did **not** come from 
 - Runs in which a hook logged an internal error: 0.
 - Pairs where both arms had the same pass/fail status: 6; mean saving on those 9,947 units (95% CI 5,090 to 14,496).
 
+- Price check: BudgetPilot's API-equivalent cost against Claude Code's own `total_cost_usd`: largest difference 0.01% over 12 runs (within the 2% tolerance).
+
 ## Caveats
 
 - Small sample: 6 pairs. Treat the interval, not the point estimate, as the result.
 - One synthetic repository and one model. Results on real repositories and other models can differ.
 - Headless runs: the human-in-the-loop recovery path is not exercised (`BP_HITL=0`).
-- Billing units are API-equivalent weights. A Pro or Max plan is not billed per token, and the plan's own usage weights are not published.
+- Billing units are API-equivalent weights. A Pro or Max plan is not billed per token, and the plan's own usage weights are not published. The test sessions are not billed per token, so no dollar figures are shown.
 - The observe arm still runs the hook processes, so it measures the effect of BudgetPilot's interventions, not of installing it. Latency added by the hooks is not part of billing units.
 - Held-out tasks (none in this run) must not be used to tune scope limits.
 

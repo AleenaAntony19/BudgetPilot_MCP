@@ -242,7 +242,7 @@ def test_persistent_difference_flags_a_stale_price_table(tmp_path):
     conn, path = _conn_with_session(tmp_path)
     for _ in range(3):
         verdict = canary.record(conn, "s1", REPORTED_USD * 1.10, "statusline", path)
-    assert verdict["drift"] and not verdict["reconciled"] and "may be stale" in verdict["message"]
+    assert verdict["drift"] and not verdict["reconciled"] and "may be stale" in verdict["message"] and "side requests" in verdict["message"]
 
 
 def test_a_single_lagging_sample_does_not_flag_drift(tmp_path):

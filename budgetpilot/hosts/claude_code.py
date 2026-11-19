@@ -23,6 +23,12 @@ class ClaudeCodeAdapter(HostAdapter):
     tier = "enforce"
     provider = "anthropic"
 
+    open_items = (
+        "Hook payloads from the editor extensions (captured from the CLI only)",
+        "How the extensions show the key warning (systemMessage) and permission dialogs (ask)",
+        "Windows command quoting for the hook command",
+    )
+
     def capabilities(self) -> HostCapabilities:
         return HostCapabilities(
             tier=self.tier,

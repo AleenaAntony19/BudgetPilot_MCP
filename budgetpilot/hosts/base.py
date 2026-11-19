@@ -24,7 +24,7 @@ from collections import namedtuple
 TIERS = ("enforce", "gateway", "tools", "observe")
 TIER_LABELS = {
     "enforce": "enforced",
-    "gateway": "enforced at the API (gateway)",
+    "gateway": "API proxy: exact usage, optional hard budget",
     "tools": "advisory (MCP tools only)",
     "observe": "measured only, no control",
 }
@@ -113,6 +113,7 @@ class HostAdapter:
     tier = "observe"
     provider = "unknown"
     name = ""
+    open_items = ()  # what is still [VERIFY] for this host, shown by `bp hosts`
 
     def capabilities(self) -> HostCapabilities:
         return HostCapabilities(tier=self.tier)
@@ -145,4 +146,5 @@ class HostAdapter:
     def describe(self) -> dict:
         caps = self.capabilities()
         return {"id": self.id, "name": self.name or self.id, "tier": self.tier,
-                "tier_label": TIER_LABELS.get(self.tier, self.tier), "capabilities": caps._asdict()}
+                "tier_label": TIER_LABELS.get(self.tier, self.tier), "capabilities": caps._asdict(),
+                "open_items": list(self.open_items)}

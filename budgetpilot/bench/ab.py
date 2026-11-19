@@ -451,7 +451,9 @@ def render_results(result: Dict[str, Any]) -> str:
         f"| Repository | `bench/fixture_repo` (synthetic, about 3,300 lines; one 3,155-line file) |",
         f"| Success | a hidden test per task, copied in after the agent stops |",
         f"| Allowed tools | `{result.get('allowed_tools', ALLOWED_TOOLS)}` |",
-        f"| Billing | {policy['billing_mode']} ({policy['billing_confidence']} confidence) |",
+        "| Billing | " + (f"{policy['billing_mode']} ({policy['billing_confidence']} confidence)" if result.get("billing")
+                          else "not recorded (this run predates billing detection); `bp ab` removes ANTHROPIC_API_KEY, "
+                               "so the test sessions use the plan login") + " |",
         f"| Cost measure | {policy['units_label']} from the session transcript: input + 1.25 x 5-minute cache "
         "writes + 2 x 1-hour cache writes + r x cache reads + 5 x output |",
         "",
@@ -511,7 +513,9 @@ def render_results(result: Dict[str, Any]) -> str:
         "- One synthetic repository and one model. Results on real repositories and other models can differ.",
         "- Headless runs: the human-in-the-loop recovery path is not exercised (`BP_HITL=0`).",
         "- Billing units are API-equivalent weights. A Pro or Max plan is not billed per token, and the plan's own "
-        "usage weights are not published. " + policy["note"],
+        "usage weights are not published. " + (
+            "Dollar figures are list-price estimates." if policy["show_dollars"]
+            else "The test sessions are not billed per token, so no dollar figures are shown."),
         "- The observe arm still runs the hook processes, so it measures the effect of BudgetPilot's interventions, "
         "not of installing it. Latency added by the hooks is not part of billing units.",
         f"- Held-out tasks ({', '.join(held_out) if held_out else 'none in this run'}) must not be used to tune "

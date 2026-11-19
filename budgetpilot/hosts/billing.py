@@ -16,8 +16,10 @@ Claude Code signals, with how each was confirmed (2026-11-19, Claude Code
                                                    account) [VERIFY billing and prices]
   ANTHROPIC_API_KEY                               docs: "used instead of your ... subscription even if
                                                    you are logged in"; always in -p, after a one-time
-                                                   approval in interactive mode. `claude auth status`
-                                                   does NOT reflect it (still reports the plan).
+                                                   approval in interactive mode. Probed: -p used it;
+                                                   an inherited claude-vscode entrypoint ignored it.
+                                                   So: api (high) when headless, else unknown.
+                                                   `claude auth status` does not reflect it.
   ANTHROPIC_AUTH_TOKEN                            docs (Bearer header); auth status: authMethod oauth_token
   ANTHROPIC_BASE_URL                              docs (proxy or gateway): who bills depends on the gateway
   apiKeyHelper in a settings file                 docs (credential helper)
@@ -185,11 +187,16 @@ def detect_claude_code(env, cwd: str = "", config=None, auth=None) -> BillingCon
         base_url = str(env.get("ANTHROPIC_BASE_URL", "")).strip()
         if base_url:
             evidence.append(f"env:ANTHROPIC_BASE_URL present ({'this machine' if _is_local_url(base_url) else 'remote'})")
-        if api_signals or helpers:
-            # Interactive sessions use a key only after the user approved it once.
-            # `claude -p` hooks see CLAUDE_CODE_ENTRYPOINT=sdk-cli (probed on 2.1.328 with a
-            # blocking UserPromptSubmit hook, 0 tokens); the VS Code extension sets claude-vscode.
-            headless = str(env.get("CLAUDE_CODE_ENTRYPOINT", "")).strip() == "sdk-cli"
+        headless = str(env.get("CLAUDE_CODE_ENTRYPOINT", "")).strip() == "sdk-cli"
+        if "ANTHROPIC_API_KEY" in api_signals and not headless and len(api_signals) == 1 and not helpers:
+            # Probed on 2.1.328: `claude -p` (CLAUDE_CODE_ENTRYPOINT=sdk-cli) used the key
+            # (apiKeySource ANTHROPIC_API_KEY); with CLAUDE_CODE_ENTRYPOINT=claude-vscode the same
+            # key was ignored (apiKeySource none) and the plan was billed. Outside -p a key is used
+            # only after the user approves it once, which hooks cannot see: say so, show no dollars.
+            i = evidence.index("env:ANTHROPIC_API_KEY present")
+            evidence[i] += " (used only if approved in an interactive session)"
+            detected = BillingContext("unknown", "anthropic", "low", (), "detected")
+        elif api_signals or helpers:
             confidence = "high" if headless and "ANTHROPIC_API_KEY" in api_signals else "medium"
             detected = BillingContext("api", "anthropic", confidence, (), "detected")
         elif base_url:

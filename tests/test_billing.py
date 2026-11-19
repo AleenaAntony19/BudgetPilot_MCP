@@ -37,7 +37,9 @@ def _detect(env, cwd="", config=None, auth=None):
     ({}, _plan(), "subscription", "anthropic", "high"),
     ({}, _plan(3 * 86400), "subscription", "anthropic", "medium"),
     ({}, _plan(30 * 86400), "subscription", "anthropic", "low"),
-    ({"ANTHROPIC_API_KEY": SECRET}, _plan(), "api", "anthropic", "medium"),
+    # Outside -p a key is used only after approval (probed: an inherited claude-vscode entrypoint ignored it)
+    ({"ANTHROPIC_API_KEY": SECRET}, _plan(), "unknown", "anthropic", "low"),
+    ({"ANTHROPIC_API_KEY": SECRET, "CLAUDE_CODE_ENTRYPOINT": "claude-vscode"}, _plan(), "unknown", "anthropic", "low"),
     ({"ANTHROPIC_API_KEY": SECRET, "CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}, _plan(), "api", "anthropic", "high"),
     ({"ANTHROPIC_AUTH_TOKEN": TOKEN}, _plan(), "api", "anthropic", "medium"),
     ({"ANTHROPIC_BASE_URL": URL}, _plan(), "api", "unknown", "low"),
@@ -62,7 +64,10 @@ def test_detection_matrix(env, auth, mode, provider, confidence):
 
 def test_evidence_names_variables_and_never_values():
     billing = _detect({"ANTHROPIC_API_KEY": SECRET, "ANTHROPIC_AUTH_TOKEN": TOKEN, "ANTHROPIC_BASE_URL": URL})
-    assert "env:ANTHROPIC_API_KEY present" in billing.evidence
+    assert "env:ANTHROPIC_API_KEY present" in billing.evidence and billing.mode == "api"
+    interactive = _detect({"ANTHROPIC_API_KEY": SECRET, "ANTHROPIC_BASE_URL": URL})
+    assert "env:ANTHROPIC_API_KEY present (used only if approved in an interactive session)" in interactive.evidence
+    assert "env:ANTHROPIC_BASE_URL present (remote)" in interactive.evidence
     assert "env:ANTHROPIC_AUTH_TOKEN present" in billing.evidence
     assert "env:ANTHROPIC_BASE_URL present (remote)" in billing.evidence
     local = _detect({"ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"})
@@ -141,8 +146,9 @@ def test_session_start_warns_once_and_records_billing(tmp_path):
     assert again is None or "systemMessage" not in again                 # once per session
     row = dict(db(home).execute("SELECT billing_mode, billing_provider, billing_confidence, billing_evidence, "
                                 "billing_warned FROM cc_sessions").fetchone())
-    assert row["billing_mode"] == "api" and row["billing_warned"] == 1
-    assert "env:ANTHROPIC_API_KEY present" in json.loads(row["billing_evidence"])
+    # Not headless: the key may or may not be used, so no dollars, but the warning still fires.
+    assert row["billing_mode"] == "unknown" and row["billing_warned"] == 1
+    assert json.loads(row["billing_evidence"])[0].startswith("env:ANTHROPIC_API_KEY present")
     _no_secret_anywhere(home)
 
 
@@ -169,7 +175,8 @@ def test_no_warning_without_a_plan_intent_or_without_a_key(tmp_path):
 def test_billing_change_at_session_end_marks_the_session_mixed(tmp_path):
     repo, home = make_repo(tmp_path / "repo"), tmp_path / "home"
     run_hook(fixture("SessionStart", repo), home, env_extra=_hook_env(tmp_path))
-    code, out, _ = run_hook(fixture("SessionEnd", repo), home, env_extra=_hook_env(tmp_path, ANTHROPIC_API_KEY=SECRET))
+    code, out, _ = run_hook(fixture("SessionEnd", repo), home, env_extra=_hook_env(
+        tmp_path, ANTHROPIC_API_KEY=SECRET, CLAUDE_CODE_ENTRYPOINT="sdk-cli"))
     assert code == 0 and out == ""                                       # SessionEnd prints nothing
     row = db(home).execute("SELECT billing_mode, billing_mode_end, billing_mixed FROM cc_sessions").fetchone()
     assert tuple(row) == ("unknown", "api", 1)
@@ -177,7 +184,7 @@ def test_billing_change_at_session_end_marks_the_session_mixed(tmp_path):
 
 def test_unchanged_billing_is_not_mixed(tmp_path):
     repo, home = make_repo(tmp_path / "repo"), tmp_path / "home"
-    env = _hook_env(tmp_path, ANTHROPIC_API_KEY=SECRET)
+    env = _hook_env(tmp_path, ANTHROPIC_API_KEY=SECRET, CLAUDE_CODE_ENTRYPOINT="sdk-cli")
     run_hook(fixture("SessionStart", repo), home, env_extra=env)
     run_hook(fixture("SessionEnd", repo), home, env_extra=env)
     assert db(home).execute("SELECT billing_mixed FROM cc_sessions").fetchone()[0] == 0
@@ -305,6 +312,10 @@ def test_transcript_check_follows_the_policy(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "$" not in out and "relative weighting, not dollars" in out
     monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "claude-vscode")
+    assert main(["transcript-check", str(TRANSCRIPT)]) == 0
+    assert "$" not in capsys.readouterr().out                           # key not necessarily used: no dollars
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")             # headless: the key is used
     assert main(["transcript-check", str(TRANSCRIPT)]) == 0
     out = capsys.readouterr().out
     assert "API-equivalent estimate $0.0128" in out and SECRET not in out
@@ -334,7 +345,7 @@ def test_doctor_fails_the_key_check_by_name_when_the_user_said_plan(tmp_path, mo
     assert cc_cli.run_doctor(claude=False) == 1
     out = capsys.readouterr().out
     assert "[FAIL] ANTHROPIC_API_KEY is set" in out and "fix: unset ANTHROPIC_API_KEY" in out
-    assert "Billing detection: api" in out and SECRET not in out
+    assert "Billing detection: unknown" in out and "used only if approved" in out and SECRET not in out
 
 
 def test_doctor_accepts_a_key_when_the_user_said_api(tmp_path, monkeypatch, capsys):

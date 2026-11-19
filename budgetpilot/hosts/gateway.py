@@ -22,9 +22,15 @@ from budgetpilot.hosts.base import HostAdapter, HostCapabilities
 
 class GatewayAdapter(HostAdapter):
     id = "gateway"
-    name = "Any agent pointed at bp gateway (base URL)"
+    name = "Agents pointed at bp gateway (API base URL)"
     tier = "gateway"
     provider = "unknown"
+
+    open_items = (
+        "OpenAI chat and Responses front doors: built from the API reference, not captured traffic",
+        "Session headers for hosts other than Claude Code",
+        "Bedrock and Vertex upstreams (signed requests)",
+    )
 
     def capabilities(self) -> HostCapabilities:
         return HostCapabilities(

@@ -2211,6 +2211,10 @@ def create_parser() -> argparse.ArgumentParser:
                                help="Rollout file (repeatable; default: every file under $CODEX_HOME/sessions)")
     import_parser.add_argument("--json", action="store_true")
 
+    hosts_parser = subparsers.add_parser("hosts", help="Supported hosts: tier, what BudgetPilot can do there, "
+                                                       "activity, and what is still unverified")
+    hosts_parser.add_argument("--json", action="store_true")
+
     subparsers.add_parser("statusline", help="Claude Code status line command (records Claude Code's own cost "
                                              "for the price drift check)")
 
@@ -2604,6 +2608,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.command == "import":
         from budgetpilot import cc_cli
         return cc_cli.run_import_codex(args.path, args.json)
+    elif args.command == "hosts":
+        from budgetpilot import cc_cli
+        return cc_cli.run_hosts(args.json)
     elif args.command == "statusline":
         from budgetpilot import cc_cli
         return cc_cli.run_statusline()

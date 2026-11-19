@@ -2,6 +2,23 @@
 
 How the project got here, release by release: [docs/HISTORY.md](docs/HISTORY.md).
 
+## Unreleased — host-agnostic and billing-aware (branch `universal`)
+
+### Added
+
+- Host adapters with declared tiers (`enforce`, `gateway`, `tools`, `observe`) and one normalised usage record; `bp hosts`; [docs/HOST_SUPPORT.md](docs/HOST_SUPPORT.md).
+- Billing detection per session (presence of variables and settings only, plus the cached `claude auth status`), user overrides, mixed-session marking, and a once-per-session warning when an API key is set although you said you use a plan (`bp install --billing`).
+- One display policy for every report: plan and unknown sessions show tokens and billing units, never dollars; API and cloud sessions add "API-equivalent estimate".
+- Price book with source and dates (`bp prices`, `bp prices refresh`, `bp prices set`); re-pricing from stored tokens; drift check against Claude Code's own cost (`bp statusline`, `bp ab`); `bp reconcile --console`.
+- `bp gateway`: local API proxy with exact usage and an optional hard budget.
+- `bp import codex` and `bp capture codex` (experimental, measure only).
+- `bp report` shows Claude Code usage (`--legacy` for the 1.0 report).
+
+### Fixed
+
+- Opus 4 and 4.1 were priced as Opus 4.5 ($5 instead of $15 input); unknown models were priced as Sonnet. Both now come from the price book; unknown models are unpriced.
+- Two processes creating a new database at once could fail, losing that request's usage.
+
 ## 2.0.0 — Claude Code integration (current)
 
 A rebuild. BudgetPilot no longer drives its own model; it runs as Claude Code hooks, a small MCP server and a local dashboard, and Claude Code (logged in with your plan) stays the model.

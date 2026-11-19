@@ -18,9 +18,13 @@ from budgetpilot.hosts.base import HostAdapter, HostCapabilities
 
 class GenericMcpAdapter(HostAdapter):
     id = "generic_mcp"
-    name = "Any MCP host without BudgetPilot hooks"
+    name = "MCP-only hosts (no BudgetPilot hooks)"
     tier = "tools"
     provider = "unknown"
+
+    open_items = (
+        "Antigravity, Cursor and Cline: none tested with BudgetPilot's MCP server yet",
+    )
 
     def capabilities(self) -> HostCapabilities:
         return HostCapabilities(

@@ -64,7 +64,8 @@ def test_generic_mcp_is_tools_tier_with_no_usage_source():
 
 
 def test_claude_code_adapter_detects_billing_without_exposing_the_key():
-    billing = get_adapter("claude_code").detect_billing({"ANTHROPIC_API_KEY": "sk-ant-secret"}, {"auth": {}})
+    billing = get_adapter("claude_code").detect_billing({"ANTHROPIC_API_KEY": "sk-ant-secret",
+                                                         "CLAUDE_CODE_ENTRYPOINT": "sdk-cli"}, {"auth": {}})
     assert billing.mode == "api" and "sk-ant-secret" not in repr(billing)
 
 

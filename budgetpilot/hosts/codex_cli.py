@@ -85,6 +85,11 @@ class CodexCliAdapter(HostAdapter):
     tier = "observe"
     provider = "openai"
 
+    open_items = (
+        "Log format: from Codex's source, not a real log (send a `bp capture codex` sample)",
+        "cache_write_input_tokens: treated as part of input and as 5-minute writes",
+    )
+
     def capabilities(self) -> HostCapabilities:
         return HostCapabilities(
             tier=self.tier,

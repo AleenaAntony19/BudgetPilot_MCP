@@ -88,9 +88,13 @@ def status(conn: sqlite3.Connection, session_id: str):
     return {"ts": row[0], "source": row[1], "host_usd": row[2], "computed_usd": row[3], "diff_pct": row[4],
             "closest_diff_pct": closest, "reconciled": reconciled,
             "drift": closest is not None and closest > TOLERANCE, "unpriced_models": bool(row[6]),
+            # Seen in practice: a 1-turn plan session differed by 3.6% because Claude Code made a side
+            # request (e.g. a title) that its transcript does not record. Name both causes.
             "message": None if reconciled else (
-                "price table may be stale: BudgetPilot's estimate differs from Claude Code's by "
-                f"{100 * closest:.1f}%" if closest is not None and closest > TOLERANCE else
+                f"BudgetPilot's estimate differs from Claude Code's by {100 * closest:.1f}%: the price table may be "
+                "stale (bp prices refresh), or the session made model calls its transcript does not record "
+                "(side requests, subagents; bp gateway sees every call)"
+                if closest is not None and closest > TOLERANCE else
                 "some models are unpriced" if row[6] else None)}
 
 

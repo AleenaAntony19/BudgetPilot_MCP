@@ -157,7 +157,9 @@ BudgetPilot detects how each Claude Code session is billed, from the presence of
 | Signal | Detected as |
 |---|---|
 | `CLAUDE_CODE_USE_BEDROCK`, `_MANTLE`, `_VERTEX`, `_FOUNDRY`, `_ANTHROPIC_AWS`, `_ANTHROPIC_GOOGLE_CLOUD` | cloud |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, an `apiKeyHelper` setting | api (per token) |
+| `ANTHROPIC_API_KEY` in a headless `claude -p` run | api (per token) |
+| `ANTHROPIC_API_KEY` in an interactive session | unknown: Claude Code uses the key only after you approve it once, which BudgetPilot cannot see. No dollars, but the key warning still applies |
+| `ANTHROPIC_AUTH_TOKEN`, an `apiKeyHelper` setting | api (per token) |
 | `ANTHROPIC_BASE_URL` alone | api, low confidence (depends on the gateway) |
 | a claude.ai login with a plan, from `claude auth status` (cached by `bp doctor` and `bp install`) | subscription |
 | nothing | unknown, shown like a subscription |
@@ -166,7 +168,7 @@ Dollar figures appear only for api and cloud sessions, labelled "API-equivalent 
 
 ## Gateway
 
-`bp gateway` is an optional local proxy between an agent and the model API. Point any agent that lets you set its API base URL at it:
+`bp gateway` is an optional local proxy between an agent and the model API (tier `gateway`, see [HOST_SUPPORT.md](HOST_SUPPORT.md)). It works with agents that let you set their API base URL:
 
 ```bash
 bp gateway                                       # http://127.0.0.1:8899, upstream https://api.anthropic.com
