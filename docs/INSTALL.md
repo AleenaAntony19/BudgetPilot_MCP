@@ -114,6 +114,7 @@ The model can call `bp_recovery_choose` and `bp_request_scope` itself. Keep them
 | `billing.intended_mode` | | `subscription`, `api` or `cloud`: how you pay. Asked once by `bp install` (or `bp install --billing ...`). With `subscription`, a session that has `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set gets a one-time warning, a dashboard banner and a failed `bp doctor` check |
 | `billing.mode_override` | | Force the detected billing mode (`subscription`, `api`, `cloud`, `unknown`); shown as "set by you" |
 | `billing.provider_override` | | Force the provider (`anthropic`, `bedrock`, `vertex`, `azure`, ...) |
+| `billing.codex_cli.mode_override` | | Billing mode for imported Codex CLI sessions (not recorded in its logs) |
 | `gateway.port`, `gateway.upstreams`, `gateway.hard_budget_units`, `gateway.session_headers` | | Gateway settings, see [Gateway](#gateway) |
 | `prices.auto_refresh` | | `true`: `bp doctor` and `bp dashboard` refresh the price book when it is older than 30 days (default off) |
 
@@ -185,6 +186,19 @@ It forwards every request unchanged and streams the response back as it arrives,
 The hard budget is the only true cap BudgetPilot has: the refused call gets a clear error instead of reaching the model. It is checked before each call against the usage recorded so far, so a call that starts in the same instant as the previous response ends can still go through. The gateway sees model calls only, not tool calls: the gate, output trimming and recovery need the hooks.
 
 Front doors: `/v1/messages` (Anthropic, verified with Claude Code 2.1.328), `/v1/chat/completions` and `/v1/responses` (OpenAI format, built from OpenAI's API reference and not yet verified with real traffic). OpenAI's streaming chat reports usage only when the request asks for it (`stream_options.include_usage`). Any other path is forwarded without usage or budget. A response compressed with Brotli or zstd is forwarded but its usage cannot be read.
+
+## Importing Codex CLI usage (experimental, measure only)
+
+```bash
+bp import codex            # every log under $CODEX_HOME/sessions (default ~/.codex)
+bp report                  # Codex sessions appear with host codex_cli
+```
+
+BudgetPilot reads token usage from Codex CLI's session logs: one record per model response, with cached and reasoning tokens. It cannot control Codex, so no gate, limits or recovery apply. Importing again only adds what is new.
+
+- Built from Codex's source code (github.com/openai/codex at 6eea328, 2026-11-19), not yet checked against a real log. `bp capture codex` writes a redacted sample of your newest log (item types, ids, model names and token numbers; no messages, tool calls, instructions or paths) that can be used to check it.
+- Codex compresses logs older than 7 days to `.jsonl.zst`, which needs a library BudgetPilot does not ship. They are listed and skipped; decompress them with `zstd -d` to import them.
+- The logs do not say how Codex was billed, so these sessions show no dollar figures unless you set `billing.codex_cli.mode_override` in `config.json`. OpenAI models also need rates: `bp prices set openai MODEL ...`.
 
 ## Hosts
 

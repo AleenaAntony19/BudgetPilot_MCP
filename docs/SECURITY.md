@@ -37,6 +37,7 @@ Everything stays on your machine, under `~/.budgetpilot` (or `$BP_HOME`):
 | `bp.db` | Task rows, gate decisions, token counts per API message, failure fingerprints (error type, top frame, a short message), recovery decisions |
 | `raw/<hash>.txt` | Full text of Bash output that was trimmed, mode `0600`. **This can contain whatever the command printed, including secrets.** Delete the folder when you like |
 | `snapshots/<task>/` | Copies of files as they were before a task first edited them; removed after a day |
+| `codex_sample.json` (where you run `bp capture codex`) | A redacted sample of one Codex log: item types, ids, model names, token numbers |
 | `captures/` | Raw hook payloads, only while `bp capture on` is active. Payloads include prompts, file contents and command output |
 | `hook_errors.log`, `outbox.jsonl` | Internal errors, and log rows waiting for a locked database |
 | `pricebook.json`, `pricebook.json.bak` | Model rates from `bp prices refresh` or `bp prices set` |

@@ -15,6 +15,7 @@ REGISTRY = {
     "claude_code": ("budgetpilot.hosts.claude_code", "ClaudeCodeAdapter"),
     "gateway": ("budgetpilot.hosts.gateway", "GatewayAdapter"),
     "generic_mcp": ("budgetpilot.hosts.generic_mcp", "GenericMcpAdapter"),
+    "codex_cli": ("budgetpilot.hosts.codex_cli", "CodexCliAdapter"),
 }
 DEFAULT_HOST = "claude_code"
 

@@ -1,0 +1,1 @@
+Synthetic Codex CLI rollout files, written from the format in Codex's source (github.com/openai/codex@6eea328, 2026-11-19): codex-rs/history/src/rollout_payload.rs, codex-rs/protocol/src/protocol.rs. Not captured from a real session. Replace with a `bp capture codex` sample when one is available.

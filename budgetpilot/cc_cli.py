@@ -835,3 +835,52 @@ def run_statusline(stdin: Any = None, out: Callable[[str], None] = print) -> int
             pass
     out(line)
     return 0
+
+
+# ------------------------------------------------------------------ Codex CLI (observe only)
+def run_import_codex(paths: Optional[List[str]] = None, as_json: bool = False,
+                     out: Callable[[str], None] = print) -> int:
+    from budgetpilot.core import hookdb
+    from budgetpilot.hosts import codex_cli
+
+    conn = hookdb.open_ready()
+    if conn is None:
+        out("BudgetPilot database unavailable.")
+        return 1
+    try:
+        report = codex_cli.import_all(conn, paths, config=state.read_config())
+    finally:
+        conn.close()
+    if as_json:
+        out(json.dumps(report, indent=2))
+        return 0
+    if not report["files"] and not report["compressed_skipped"]:
+        out(f"No Codex CLI session logs found under {codex_cli.codex_home()}/sessions.")
+        return 0
+    out(f"Codex CLI (experimental, measured only): {report['files']} log file(s), {report['events']} new usage "
+        f"record(s), {len(report['sessions'])} session(s).")
+    if report["compressed_skipped"]:
+        out(f"  Skipped {len(report['compressed_skipped'])} compressed file(s) (.jsonl.zst cannot be read without "
+            "the zstandard library); decompress them with `zstd -d` and import the .jsonl.")
+    out("  See them with `bp report`. Billing is not in Codex logs, so no dollar figures are shown unless you set "
+        "billing.codex_cli.mode_override.")
+    return 0
+
+
+def run_capture_codex(path: Optional[str] = None, out_file: Optional[str] = None,
+                      out: Callable[[str], None] = print) -> int:
+    from budgetpilot.hosts import codex_cli
+
+    if not path:
+        files, _ = codex_cli.discover()
+        if not files:
+            out(f"No Codex CLI session logs under {codex_cli.codex_home()}/sessions. Pass --path.")
+            return 1
+        path = str(max(files, key=lambda p: p.stat().st_mtime))
+    sample = codex_cli.redacted_sample(path)
+    target = out_file or "codex_sample.json"
+    with open(target, "w", encoding="utf-8") as f:
+        json.dump(sample, f, indent=1)
+    out(f"Wrote a redacted sample of {os.path.basename(path)} to {target}: item types, ids, model names and token "
+        "numbers only (no messages, tool calls, instructions or paths). Check it before sharing.")
+    return 0

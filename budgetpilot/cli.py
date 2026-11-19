@@ -2205,6 +2205,12 @@ def create_parser() -> argparse.ArgumentParser:
     gateway_parser.add_argument("--capture", default=None,
                                 help="Write redacted request/response shapes here (no text, no credentials)")
 
+    import_parser = subparsers.add_parser("import", help="Import token usage from another agent's logs (measure only)")
+    import_parser.add_argument("host", choices=["codex"], help="codex: Codex CLI session logs (experimental)")
+    import_parser.add_argument("--path", action="append", default=None,
+                               help="Rollout file (repeatable; default: every file under $CODEX_HOME/sessions)")
+    import_parser.add_argument("--json", action="store_true")
+
     subparsers.add_parser("statusline", help="Claude Code status line command (records Claude Code's own cost "
                                              "for the price drift check)")
 
@@ -2275,7 +2281,11 @@ def create_parser() -> argparse.ArgumentParser:
     capture_parser = subparsers.add_parser(
         "capture", help="Record the raw hook payloads Claude Code sends (diagnostic)"
     )
-    capture_parser.add_argument("state", choices=["on", "off"], help="Register or remove the capture hook")
+    capture_parser.add_argument("state", choices=["on", "off", "codex"],
+                                help="on/off: register or remove the capture hook; codex: save a redacted sample of a "
+                                     "Codex CLI session log")
+    capture_parser.add_argument("--path", default=None, help="codex: rollout file (default: the newest)")
+    capture_parser.add_argument("--out", default=None, help="codex: output file (default: codex_sample.json)")
     capture_parser.add_argument("--scope", choices=["user", "project"], default="user",
                                 help="user = ~/.claude/settings.json; project = <repo>/.claude/settings.local.json")
     capture_parser.add_argument("--repo", default=None, help="Repository root for --scope project (default: cwd)")
@@ -2591,6 +2601,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         from budgetpilot.gateway.server import run as run_gateway
         return run_gateway(args.port, args.anthropic_upstream, args.openai_upstream, args.hard_budget_units,
                            args.capture)
+    elif args.command == "import":
+        from budgetpilot import cc_cli
+        return cc_cli.run_import_codex(args.path, args.json)
     elif args.command == "statusline":
         from budgetpilot import cc_cli
         return cc_cli.run_statusline()
@@ -2624,6 +2637,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cc_cli.run_transcript_check(args.path, as_json=args.json)
 
     elif args.command == "capture":
+        if args.state == "codex":
+            from budgetpilot import cc_cli
+            return cc_cli.run_capture_codex(args.path, args.out)
         return run_capture(args.state, scope=args.scope, repo=args.repo)
 
     elif args.command == "bench":
